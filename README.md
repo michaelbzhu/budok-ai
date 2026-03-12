@@ -44,6 +44,20 @@ Daemon smoke tests:
 uv run --project daemon pytest tests/daemon
 ```
 
+Mod bridge handshake harness:
+
+```bash
+uv run --project daemon python scripts/mod_bridge_harness.py --mode print-hello
+uv run --project daemon python scripts/mod_bridge_harness.py --mode handshake
+```
+
+Godot bridge smoke run:
+
+```bash
+uv run --project daemon yomi-daemon
+godot3 --no-window --path mod --script res://BridgeHandshakeSmoke.gd
+```
+
 Daemon quality gates:
 
 ```bash

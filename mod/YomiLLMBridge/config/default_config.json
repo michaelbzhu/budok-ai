@@ -1,8 +1,20 @@
 {
   "transport": {
     "host": "127.0.0.1",
-    "port": 8765
+    "port": 8765,
+    "connect_on_ready": true
   },
+  "protocol": {
+    "schema_version": "v1",
+    "supported_versions": ["v1"]
+  },
+  "game_version": "supported-build-16151810",
   "timeout_profile": "strict_local",
-  "fallback_mode": "safe_continue"
+  "decision_timeout_ms": 2500,
+  "fallback_mode": "safe_continue",
+  "logging": {
+    "events": true,
+    "bridge_state": true,
+    "raw_messages": false
+  }
 }
