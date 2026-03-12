@@ -1,20 +1,24 @@
-"""Schema-backed validation helpers for protocol payloads and envelopes."""
+"""Schema-backed validation helpers for protocol payloads and request-relative decisions."""
 
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from functools import cache
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from jsonschema import Draft202012Validator, FormatChecker
 from jsonschema.exceptions import ValidationError, best_match
 
 from yomi_daemon.protocol import (
+    ActionDecision,
     CURRENT_PROTOCOL_VERSION,
+    DecisionRequest,
     PAYLOAD_TYPE_BY_MESSAGE_TYPE,
     Envelope,
+    FallbackReason,
+    LegalAction,
     MessageType,
     ProtocolModel,
     ProtocolVersion,
@@ -48,6 +52,21 @@ class ProtocolValidationError(ValueError):
     ) -> None:
         super().__init__(message)
         self.schema_name = schema_name
+        self.location = location
+
+
+class DecisionValidationError(ValueError):
+    """Raised when an action decision is incompatible with a live request."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        fallback_reason: FallbackReason,
+        location: tuple[str | int, ...] = (),
+    ) -> None:
+        super().__init__(message)
+        self.fallback_reason = fallback_reason
         self.location = location
 
 
@@ -160,3 +179,321 @@ def validate_model(
 def parse_envelope(envelope: Mapping[str, object]) -> Envelope:
     validate_envelope(envelope)
     return Envelope.from_dict(envelope)
+
+
+_SCHEMA_DESCRIPTOR_KEYS = frozenset(
+    {
+        "additionalProperties",
+        "choices",
+        "const",
+        "default",
+        "enum",
+        "items",
+        "maximum",
+        "maxItems",
+        "max_items",
+        "minimum",
+        "minItems",
+        "min_items",
+        "properties",
+        "required",
+        "type",
+    }
+)
+_JSON_TYPE_NAMES = frozenset({"array", "boolean", "integer", "number", "object", "string"})
+
+
+def validate_action_decision_for_request(
+    request: DecisionRequest,
+    decision: ActionDecision,
+    *,
+    require_request_ids: bool = True,
+) -> LegalAction:
+    """Validate an action decision against the current request and legal action set."""
+
+    validate_model(decision)
+
+    if require_request_ids and decision.match_id != request.match_id:
+        raise DecisionValidationError(
+            (
+                f"action_decision.match_id {decision.match_id!r} does not match "
+                f"request.match_id {request.match_id!r}"
+            ),
+            fallback_reason=FallbackReason.STALE_RESPONSE,
+            location=("match_id",),
+        )
+    if require_request_ids and decision.turn_id != request.turn_id:
+        raise DecisionValidationError(
+            (
+                f"action_decision.turn_id {decision.turn_id} does not match "
+                f"request.turn_id {request.turn_id}"
+            ),
+            fallback_reason=FallbackReason.STALE_RESPONSE,
+            location=("turn_id",),
+        )
+
+    for legal_action in request.legal_actions:
+        if legal_action.action == decision.action:
+            _validate_decision_extras(legal_action, decision)
+            _validate_decision_payload(legal_action, decision)
+            return legal_action
+
+    raise DecisionValidationError(
+        f"action_decision.action {decision.action!r} is not present in the current legal action set",
+        fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+        location=("action",),
+    )
+
+
+def is_replayable_decision(request: DecisionRequest, decision: ActionDecision) -> bool:
+    """Return True when the prior decision can be replayed under the current legal set."""
+
+    try:
+        validate_action_decision_for_request(
+            request,
+            decision,
+            require_request_ids=False,
+        )
+    except (DecisionValidationError, ProtocolValidationError):
+        return False
+    return True
+
+
+def _validate_decision_extras(legal_action: LegalAction, decision: ActionDecision) -> None:
+    if decision.extra.di is not None and not legal_action.supports.di:
+        raise DecisionValidationError(
+            f"action {decision.action!r} does not support extra.di",
+            fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+            location=("extra", "di"),
+        )
+    if decision.extra.feint and not legal_action.supports.feint:
+        raise DecisionValidationError(
+            f"action {decision.action!r} does not support extra.feint",
+            fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+            location=("extra", "feint"),
+        )
+    if decision.extra.reverse and not legal_action.supports.reverse:
+        raise DecisionValidationError(
+            f"action {decision.action!r} does not support extra.reverse",
+            fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+            location=("extra", "reverse"),
+        )
+
+
+def _validate_decision_payload(legal_action: LegalAction, decision: ActionDecision) -> None:
+    if decision.data is None:
+        return
+
+    if not legal_action.payload_spec:
+        if decision.data:
+            raise DecisionValidationError(
+                f"action {decision.action!r} does not accept payload fields",
+                fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+                location=("data",),
+            )
+        return
+
+    _validate_payload_value(
+        decision.data,
+        legal_action.payload_spec,
+        context="data",
+        field_map_mode=_looks_like_field_map(legal_action.payload_spec),
+    )
+
+
+def _looks_like_field_map(spec: Mapping[str, object]) -> bool:
+    return not bool(_SCHEMA_DESCRIPTOR_KEYS & set(spec))
+
+
+def _validate_payload_value(
+    value: object,
+    spec: Mapping[str, object],
+    *,
+    context: str,
+    field_map_mode: bool = False,
+) -> None:
+    if field_map_mode:
+        if not isinstance(value, Mapping):
+            raise DecisionValidationError(
+                f"{context} must be an object for this action payload",
+                fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+                location=_location_tuple(context),
+            )
+        mapping_value = cast(Mapping[str, object], value)
+        for key in mapping_value:
+            if key not in spec:
+                raise DecisionValidationError(
+                    f"{context}.{key} is not defined by the legal action payload spec",
+                    fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+                    location=_location_tuple(f"{context}.{key}"),
+                )
+        for key, item in mapping_value.items():
+            descriptor = spec[key]
+            if isinstance(descriptor, Mapping):
+                _validate_payload_value(
+                    item,
+                    cast(Mapping[str, object], descriptor),
+                    context=f"{context}.{key}",
+                    field_map_mode=_looks_like_field_map(cast(Mapping[str, object], descriptor)),
+                )
+        return
+
+    _validate_descriptor_type(value, spec, context=context)
+
+    if "const" in spec and value != spec["const"]:
+        raise DecisionValidationError(
+            f"{context} must equal {spec['const']!r}",
+            fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+            location=_location_tuple(context),
+        )
+
+    enum_values = spec.get("enum", spec.get("choices"))
+    if isinstance(enum_values, Sequence) and not isinstance(enum_values, str | bytes | bytearray):
+        if value not in enum_values:
+            raise DecisionValidationError(
+                f"{context} must be one of the declared payload choices",
+                fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+                location=_location_tuple(context),
+            )
+
+    if isinstance(value, Mapping):
+        properties = spec.get("properties")
+        if isinstance(properties, Mapping):
+            properties_mapping = cast(Mapping[str, object], properties)
+            mapping_value = cast(Mapping[str, object], value)
+            additional_properties = spec.get("additionalProperties", True)
+            for key in mapping_value:
+                if key in properties_mapping:
+                    descriptor = properties_mapping[key]
+                    if isinstance(descriptor, Mapping):
+                        _validate_payload_value(
+                            mapping_value[key],
+                            cast(Mapping[str, object], descriptor),
+                            context=f"{context}.{key}",
+                            field_map_mode=_looks_like_field_map(
+                                cast(Mapping[str, object], descriptor)
+                            ),
+                        )
+                    continue
+                if additional_properties is False:
+                    raise DecisionValidationError(
+                        f"{context}.{key} is not allowed by the payload schema",
+                        fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+                        location=_location_tuple(f"{context}.{key}"),
+                    )
+
+            required = spec.get("required")
+            if isinstance(required, Sequence) and not isinstance(required, str | bytes | bytearray):
+                for required_key in required:
+                    if isinstance(required_key, str) and required_key not in mapping_value:
+                        raise DecisionValidationError(
+                            f"{context}.{required_key} is required by the payload schema",
+                            fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+                            location=_location_tuple(f"{context}.{required_key}"),
+                        )
+
+    if isinstance(value, Sequence) and not isinstance(value, str | bytes | bytearray):
+        items_spec = spec.get("items")
+        if isinstance(items_spec, Mapping):
+            descriptor = cast(Mapping[str, object], items_spec)
+            for index, item in enumerate(value):
+                _validate_payload_value(
+                    item,
+                    descriptor,
+                    context=f"{context}[{index}]",
+                    field_map_mode=_looks_like_field_map(descriptor),
+                )
+
+        min_items = _optional_integer(spec.get("minItems", spec.get("min_items")))
+        if min_items is not None and len(value) < min_items:
+            raise DecisionValidationError(
+                f"{context} must contain at least {min_items} items",
+                fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+                location=_location_tuple(context),
+            )
+
+        max_items = _optional_integer(spec.get("maxItems", spec.get("max_items")))
+        if max_items is not None and len(value) > max_items:
+            raise DecisionValidationError(
+                f"{context} must contain at most {max_items} items",
+                fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+                location=_location_tuple(context),
+            )
+
+    if _is_number(value):
+        minimum = _optional_number(spec.get("minimum"))
+        if minimum is not None and cast(float, value) < minimum:
+            raise DecisionValidationError(
+                f"{context} must be >= {minimum}",
+                fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+                location=_location_tuple(context),
+            )
+        maximum = _optional_number(spec.get("maximum"))
+        if maximum is not None and cast(float, value) > maximum:
+            raise DecisionValidationError(
+                f"{context} must be <= {maximum}",
+                fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+                location=_location_tuple(context),
+            )
+
+
+def _validate_descriptor_type(value: object, spec: Mapping[str, object], *, context: str) -> None:
+    raw_type = spec.get("type")
+    if not isinstance(raw_type, str):
+        return
+
+    normalized_type = raw_type.lower()
+    if normalized_type == "string":
+        if not isinstance(value, str):
+            raise _type_error(context, "a string")
+        return
+    if normalized_type == "integer":
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise _type_error(context, "an integer")
+        return
+    if normalized_type == "number":
+        if not _is_number(value):
+            raise _type_error(context, "a number")
+        return
+    if normalized_type == "boolean":
+        if not isinstance(value, bool):
+            raise _type_error(context, "a boolean")
+        return
+    if normalized_type == "object":
+        if not isinstance(value, Mapping):
+            raise _type_error(context, "an object")
+        return
+    if normalized_type == "array":
+        if not isinstance(value, Sequence) or isinstance(value, str | bytes | bytearray):
+            raise _type_error(context, "an array")
+        return
+    if normalized_type not in _JSON_TYPE_NAMES and not isinstance(value, str):
+        raise _type_error(context, "a string")
+
+
+def _type_error(context: str, expected: str) -> DecisionValidationError:
+    return DecisionValidationError(
+        f"{context} must be {expected}",
+        fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+        location=_location_tuple(context),
+    )
+
+
+def _location_tuple(context: str) -> tuple[str | int, ...]:
+    return tuple(part for part in context.replace("[", ".").replace("]", "").split(".") if part)
+
+
+def _optional_integer(raw: object) -> int | None:
+    if raw is None or isinstance(raw, bool) or not isinstance(raw, int):
+        return None
+    return raw
+
+
+def _optional_number(raw: object) -> float | None:
+    if not _is_number(raw):
+        return None
+    return float(cast(int | float, raw))
+
+
+def _is_number(raw: object) -> bool:
+    return not isinstance(raw, bool) and isinstance(raw, int | float)
