@@ -15,6 +15,12 @@ Validate all schema files parse as JSON:
 uv run --project daemon python scripts/check_schemas.py
 ```
 
+Run the daemon handshake server locally:
+
+```bash
+uv run --project daemon yomi-daemon --host 127.0.0.1 --port 8765
+```
+
 Run the daemon smoke tests:
 
 ```bash
