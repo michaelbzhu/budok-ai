@@ -1,1 +1,1 @@
-"""Tournament package placeholder."""
+"""Tournament scheduling, rating, reporting, and execution."""
