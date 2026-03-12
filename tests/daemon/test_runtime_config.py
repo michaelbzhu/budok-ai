@@ -60,6 +60,7 @@ def test_load_runtime_config_from_default_file() -> None:
     assert config.policy_mapping.p2 == "baseline/random"
     assert config.effective_stage_id == "training_room"
     assert "baseline/block_always" in config.policies
+    assert "baseline/scripted_safe" in config.policies
 
 
 @pytest.mark.parametrize(

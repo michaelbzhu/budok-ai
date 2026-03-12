@@ -27,6 +27,10 @@
     "baseline/greedy_damage": {
       "provider": "baseline",
       "prompt_version": "none"
+    },
+    "baseline/scripted_safe": {
+      "provider": "baseline",
+      "prompt_version": "none"
     }
   },
   "character_selection": {
