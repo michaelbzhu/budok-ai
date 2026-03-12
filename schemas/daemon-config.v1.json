@@ -1,0 +1,177 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Daemon Runtime Config v1",
+  "description": "Versioned daemon-side runtime configuration with env-backed policy credentials.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "v1"
+    },
+    "transport": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "host": {
+          "type": "string",
+          "minLength": 1
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
+      }
+    },
+    "timeout_profile": {
+      "type": "string",
+      "enum": ["strict_local", "llm_tournament"]
+    },
+    "decision_timeout_ms": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 15000
+    },
+    "fallback_mode": {
+      "type": "string",
+      "enum": ["safe_continue", "heuristic_guard", "last_valid_replayable"]
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "events": {
+          "type": "boolean"
+        },
+        "prompts": {
+          "type": "boolean"
+        },
+        "raw_provider_payloads": {
+          "type": "boolean"
+        }
+      }
+    },
+    "policy_mapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "p1": {
+          "type": "string",
+          "minLength": 1
+        },
+        "p2": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "policies": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["provider"],
+        "properties": {
+          "provider": {
+            "type": "string",
+            "minLength": 1
+          },
+          "model": {
+            "type": ["string", "null"],
+            "minLength": 1
+          },
+          "prompt_version": {
+            "type": ["string", "null"],
+            "minLength": 1
+          },
+          "credential_env_var": {
+            "type": ["string", "null"],
+            "minLength": 1
+          },
+          "temperature": {
+            "type": ["number", "null"]
+          },
+          "max_tokens": {
+            "type": ["integer", "null"],
+            "minimum": 1
+          },
+          "options": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "character_selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["mirror", "assigned", "random_from_pool"]
+        },
+        "assignments": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "p1": {
+              "type": ["string", "null"],
+              "minLength": 1
+            },
+            "p2": {
+              "type": ["string", "null"],
+              "minLength": 1
+            }
+          }
+        },
+        "pool": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "tournament": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "type": "string",
+          "enum": [
+            "single_match",
+            "side_swapped_pair",
+            "round_robin",
+            "double_round_robin"
+          ]
+        },
+        "mirror_matches_first": {
+          "type": "boolean"
+        },
+        "side_swap": {
+          "type": "boolean"
+        },
+        "games_per_pair": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "fixed_stage": {
+          "type": ["string", "null"],
+          "minLength": 1
+        }
+      }
+    },
+    "trace_seed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "stage_id": {
+      "type": ["string", "null"],
+      "minLength": 1
+    }
+  }
+}
