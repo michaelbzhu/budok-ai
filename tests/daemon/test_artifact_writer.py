@@ -65,7 +65,9 @@ def _manifest(match_id: str) -> Any:
     )
 
 
-def _request(turn_id: int, *, state_hash: str, legal_actions_hash: str) -> DecisionRequest:
+def _request(
+    turn_id: int, *, state_hash: str, legal_actions_hash: str
+) -> DecisionRequest:
     return DecisionRequest(
         match_id="match-005",
         turn_id=turn_id,
@@ -297,7 +299,9 @@ def test_match_artifact_writer_appends_records_in_order_and_preserves_payloads(
         recorded_at=datetime(2026, 3, 12, 12, 0, 2, tzinfo=UTC),
         policy_id="baseline/random",
         prompt_version="minimal_v1",
-        provider_request={"messages": [{"role": "user", "content": "Choose a safe punish."}]},
+        provider_request={
+            "messages": [{"role": "user", "content": "Choose a safe punish."}]
+        },
         provider_response={"raw": {"choice": "slash"}},
     )
     writer.append_decision(

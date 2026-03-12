@@ -37,6 +37,20 @@ class PolicyAdapterMetadata:
     options: Mapping[str, object] = field(default_factory=dict)
 
 
+@dataclass(frozen=True, slots=True)
+class PromptTrace:
+    prompt_text: str
+    prompt_version: str | None = None
+    provider_request: JsonObject | None = None
+    provider_response: JsonObject | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyDecisionResult:
+    decision: ActionDecision
+    prompt_trace: PromptTrace | None = None
+
+
 @runtime_checkable
 class PolicyAdapter(Protocol):
     @property
@@ -46,6 +60,8 @@ class PolicyAdapter(Protocol):
     def metadata(self) -> PolicyAdapterMetadata: ...
 
     async def decide(self, request: DecisionRequest) -> ActionDecision: ...
+
+    async def decide_with_trace(self, request: DecisionRequest) -> PolicyDecisionResult: ...
 
 
 class BasePolicyAdapter(ABC):
@@ -126,6 +142,9 @@ class BasePolicyAdapter(ABC):
             reverse=False,
         )
 
+    async def decide_with_trace(self, request: DecisionRequest) -> PolicyDecisionResult:
+        return PolicyDecisionResult(decision=await self.decide(request))
+
     @abstractmethod
     async def decide(self, request: DecisionRequest) -> ActionDecision:
         """Return a decision for the current request."""
@@ -142,7 +161,10 @@ def metadata_from_policy_config(policy_id: str, policy: "PolicyConfig") -> Polic
 
 
 def build_policy_registry(runtime_config: "DaemonRuntimeConfig") -> Mapping[str, PolicyAdapter]:
+    from yomi_daemon.adapters.anthropic import build_anthropic_adapter
     from yomi_daemon.adapters.baseline import build_baseline_adapter
+    from yomi_daemon.adapters.openai import build_openai_adapter
+    from yomi_daemon.adapters.openrouter import build_openrouter_adapter
 
     registry: dict[str, PolicyAdapter] = {}
     for policy_id, policy in runtime_config.policies.items():
@@ -150,6 +172,33 @@ def build_policy_registry(runtime_config: "DaemonRuntimeConfig") -> Mapping[str,
             registry[policy_id] = build_baseline_adapter(
                 policy_id,
                 policy,
+                default_trace_seed=runtime_config.trace_seed,
+            )
+            continue
+        if policy.provider == "anthropic":
+            registry[policy_id] = build_anthropic_adapter(
+                policy_id,
+                policy,
+                decision_timeout_ms=runtime_config.decision_timeout_ms,
+                fallback_mode=runtime_config.fallback_mode,
+                default_trace_seed=runtime_config.trace_seed,
+            )
+            continue
+        if policy.provider == "openai":
+            registry[policy_id] = build_openai_adapter(
+                policy_id,
+                policy,
+                decision_timeout_ms=runtime_config.decision_timeout_ms,
+                fallback_mode=runtime_config.fallback_mode,
+                default_trace_seed=runtime_config.trace_seed,
+            )
+            continue
+        if policy.provider == "openrouter":
+            registry[policy_id] = build_openrouter_adapter(
+                policy_id,
+                policy,
+                decision_timeout_ms=runtime_config.decision_timeout_ms,
+                fallback_mode=runtime_config.fallback_mode,
                 default_trace_seed=runtime_config.trace_seed,
             )
             continue

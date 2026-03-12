@@ -6,9 +6,17 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from time import monotonic
+from typing import TYPE_CHECKING
 
+from yomi_daemon.adapters.base import PolicyAdapter, PolicyDecisionResult
 from yomi_daemon.fallback import build_fallback_decision
-from yomi_daemon.protocol import ActionDecision, DecisionRequest, FallbackMode, FallbackReason
+from yomi_daemon.protocol import (
+    ActionDecision,
+    DecisionRequest,
+    FallbackMode,
+    FallbackReason,
+    LoggingConfig,
+)
 from yomi_daemon.response_parser import (
     CorrectionCallback,
     ParseSource,
@@ -17,6 +25,9 @@ from yomi_daemon.response_parser import (
     ResponseParsingError,
     parse_action_decision_with_correction,
 )
+
+if TYPE_CHECKING:
+    from yomi_daemon.storage.writer import MatchArtifactWriter
 
 
 DecisionProvider = Callable[[DecisionRequest], Awaitable[object]]
@@ -130,3 +141,45 @@ def _fallback_result(
         fallback_reason=fallback_reason,
         fallback_strategy=selection.strategy,
     )
+
+
+async def resolve_adapter_decision(
+    request: DecisionRequest,
+    *,
+    adapter: PolicyAdapter,
+    artifact_writer: "MatchArtifactWriter | None" = None,
+    logging_config: LoggingConfig | None = None,
+) -> PolicyDecisionResult:
+    """Resolve a policy adapter and persist prompt/decision traces when requested."""
+
+    result = await adapter.decide_with_trace(request)
+    if artifact_writer is None:
+        return result
+
+    resolved_logging = logging_config or LoggingConfig(
+        events=True,
+        prompts=True,
+        raw_provider_payloads=False,
+    )
+    if resolved_logging.prompts and result.prompt_trace is not None:
+        artifact_writer.append_prompt(
+            prompt_text=result.prompt_trace.prompt_text,
+            request_payload=request,
+            policy_id=adapter.id,
+            prompt_version=result.prompt_trace.prompt_version,
+            provider_request=(
+                result.prompt_trace.provider_request
+                if resolved_logging.raw_provider_payloads
+                else None
+            ),
+            provider_response=(
+                result.prompt_trace.provider_response
+                if resolved_logging.raw_provider_payloads
+                else None
+            ),
+        )
+    artifact_writer.append_decision(
+        request_payload=request,
+        decision_payload=result.decision,
+    )
+    return result

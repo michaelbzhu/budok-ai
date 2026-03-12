@@ -9,8 +9,10 @@ description = "Daemon and local tooling for the YOMI Hustle LLM Arena project."
 readme = "../README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "anthropic>=0.84.0",
   "jsonschema>=4.23.0",
-  "websockets>=15.0.1"
+  "openai>=2.26.0",
+  "websockets>=15.0.1",
 ]
 
 [project.scripts]

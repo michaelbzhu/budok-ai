@@ -1,13 +1,14 @@
-"""Anthropic Messages API adapter."""
+"""OpenRouter chat-completions adapter."""
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
-from anthropic import APIConnectionError, APIStatusError, AsyncAnthropic
+from openai import APIConnectionError, APIStatusError, AsyncOpenAI
 
 from yomi_daemon.adapters.base import (
     AdapterConstructionError,
@@ -30,21 +31,23 @@ if TYPE_CHECKING:
     from yomi_daemon.config import PolicyConfig
 
 
-_TOOL_NAME = "submit_action_decision"
+_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
-class AnthropicTransport(Protocol):
-    async def create_message(
+class OpenRouterTransport(Protocol):
+    async def create_completion(
         self,
         *,
         api_key: str,
         payload: JsonObject,
         timeout_ms: int,
+        http_referer: str | None,
+        title: str | None,
     ) -> JsonObject: ...
 
 
-class AnthropicProviderError(RuntimeError):
-    """Raised when the upstream Anthropic request fails before parsing."""
+class OpenRouterProviderError(RuntimeError):
+    """Raised when the upstream OpenRouter request fails before parsing."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,43 +57,66 @@ class _ProviderCallResult:
     response_payload: JsonObject
 
 
-class DefaultAnthropicTransport:
+class DefaultOpenRouterTransport:
     def __init__(self) -> None:
-        self._client_by_api_key: dict[str, AsyncAnthropic] = {}
+        self._client_by_key_and_headers: dict[tuple[str, str | None, str | None], AsyncOpenAI] = {}
 
-    async def create_message(
+    async def create_completion(
         self,
         *,
         api_key: str,
         payload: JsonObject,
         timeout_ms: int,
+        http_referer: str | None,
+        title: str | None,
     ) -> JsonObject:
         try:
-            response = await self._client_for_api_key(api_key).messages.create(
+            response = await self._client_for_config(
+                api_key=api_key,
+                http_referer=http_referer,
+                title=title,
+            ).chat.completions.create(
                 **cast(Any, payload),
                 timeout=timeout_ms / 1000,
             )
         except APIConnectionError as exc:
-            raise OSError(f"Anthropic transport failed: {exc}") from exc
+            raise OSError(f"OpenRouter transport failed: {exc}") from exc
         except APIStatusError as exc:
-            raise AnthropicProviderError(
-                f"Anthropic request failed with HTTP {exc.status_code}: {exc.response}"
+            raise OpenRouterProviderError(
+                f"OpenRouter request failed with HTTP {exc.status_code}: {exc.response}"
             ) from exc
 
         dumped = response.model_dump(mode="json")
         if not isinstance(dumped, dict):
-            raise AnthropicProviderError("Anthropic SDK response did not serialize to an object")
+            raise OpenRouterProviderError("OpenRouter SDK response did not serialize to an object")
         return cast(JsonObject, dumped)
 
-    def _client_for_api_key(self, api_key: str) -> AsyncAnthropic:
-        client = self._client_by_api_key.get(api_key)
+    def _client_for_config(
+        self,
+        *,
+        api_key: str,
+        http_referer: str | None,
+        title: str | None,
+    ) -> AsyncOpenAI:
+        cache_key = (api_key, http_referer, title)
+        client = self._client_by_key_and_headers.get(cache_key)
         if client is None:
-            client = AsyncAnthropic(api_key=api_key)
-            self._client_by_api_key[api_key] = client
+            default_headers: dict[str, str] = {}
+            if http_referer is not None:
+                default_headers["HTTP-Referer"] = http_referer
+            if title is not None:
+                default_headers["X-Title"] = title
+            client = AsyncOpenAI(
+                api_key=api_key,
+                base_url=_OPENROUTER_BASE_URL,
+                default_headers=default_headers or None,
+                max_retries=0,
+            )
+            self._client_by_key_and_headers[cache_key] = client
         return client
 
 
-class AnthropicAdapter(BasePolicyAdapter):
+class OpenRouterAdapter(BasePolicyAdapter):
     def __init__(
         self,
         *,
@@ -101,7 +127,9 @@ class AnthropicAdapter(BasePolicyAdapter):
         parsing_config: ResponseParsingConfig,
         temperature: float | None,
         max_tokens: int | None,
-        transport: AnthropicTransport | None = None,
+        http_referer: str | None,
+        title: str | None,
+        transport: OpenRouterTransport | None = None,
         default_trace_seed: int = 0,
     ) -> None:
         super().__init__(metadata=metadata, default_trace_seed=default_trace_seed)
@@ -111,7 +139,9 @@ class AnthropicAdapter(BasePolicyAdapter):
         self._parsing_config = parsing_config
         self._temperature = temperature
         self._max_tokens = max_tokens
-        self._transport = transport or DefaultAnthropicTransport()
+        self._http_referer = http_referer
+        self._title = title
+        self._transport = transport or DefaultOpenRouterTransport()
 
     async def decide(self, request: DecisionRequest) -> ActionDecision:
         return (await self.decide_with_trace(request)).decision
@@ -179,17 +209,19 @@ class AnthropicAdapter(BasePolicyAdapter):
         attempt_kind: str,
     ) -> _ProviderCallResult:
         if not self._api_key:
-            raise AnthropicProviderError("ANTHROPIC_API_KEY is not configured for this policy")
+            raise OpenRouterProviderError("OPENROUTER_API_KEY is not configured for this policy")
 
         provider_request = self._build_request_payload(
             prompt_text=prompt_text,
             request=request,
             attempt_kind=attempt_kind,
         )
-        provider_response = await self._transport.create_message(
+        provider_response = await self._transport.create_completion(
             api_key=self._api_key,
             payload=provider_request,
             timeout_ms=self._decision_timeout_ms,
+            http_referer=self._http_referer,
+            title=self._title,
         )
         output = _extract_response_output(provider_response)
         return _ProviderCallResult(
@@ -210,58 +242,42 @@ class AnthropicAdapter(BasePolicyAdapter):
         )
         payload: JsonObject = {
             "model": cast(str, self.metadata.model),
-            "max_tokens": self._max_tokens if self._max_tokens is not None else 256,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                f"{prompt_text}\n\n"
-                                f"Use the `{_TOOL_NAME}` tool for the final answer."
-                            ),
-                        }
-                    ],
-                }
-            ],
-            "tools": [
-                {
-                    "name": _TOOL_NAME,
-                    "description": (
-                        "Submit the final YOMI action decision as a JSON object that strictly "
-                        "matches the provided schema."
-                    ),
-                    "input_schema": decision_output_json_schema(),
-                }
-            ],
-            "tool_choice": {"type": "tool", "name": _TOOL_NAME},
-            "metadata": {"user_id": f"{request.match_id}:{request.turn_id}:{attempt_kind}"},
+            "messages": [{"role": "user", "content": prompt_text}],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "yomi_action_decision",
+                    "strict": True,
+                    "schema": decision_output_json_schema(),
+                },
+            },
+            "user": f"{request.match_id}:{request.turn_id}:{attempt_kind}",
         }
         if self._temperature is not None:
             payload["temperature"] = self._temperature
+        if self._max_tokens is not None:
+            payload["max_tokens"] = self._max_tokens
         if request.trace_seed is not None:
-            payload["system"] = (
-                "Deterministic trace seed: "
-                f"{request.trace_seed}. Prompt version: {prompt_version}. Policy: {self.id}."
-            )
+            payload["seed"] = request.trace_seed
+        payload["metadata"] = {"prompt_version": prompt_version, "policy_id": self.id}
         return payload
 
 
-def build_anthropic_adapter(
+def build_openrouter_adapter(
     policy_id: str,
     policy: "PolicyConfig",
     *,
     decision_timeout_ms: int,
     fallback_mode: FallbackMode,
-    transport: AnthropicTransport | None = None,
+    transport: OpenRouterTransport | None = None,
     default_trace_seed: int = 0,
-) -> AnthropicAdapter:
+) -> OpenRouterAdapter:
     if policy.model is None:
-        raise AdapterConstructionError(f"anthropic policy {policy_id!r} must define a model")
+        raise AdapterConstructionError(f"openrouter policy {policy_id!r} must define a model")
     metadata = metadata_from_policy_config(policy_id, policy)
     parsing_config = ResponseParsingConfig.from_policy_options(policy.options)
-    return AnthropicAdapter(
+    options = policy.options
+    return OpenRouterAdapter(
         metadata=metadata,
         api_key=policy.credential.value,
         decision_timeout_ms=decision_timeout_ms,
@@ -269,9 +285,22 @@ def build_anthropic_adapter(
         parsing_config=parsing_config,
         temperature=policy.temperature,
         max_tokens=policy.max_tokens,
+        http_referer=_optional_string_option(options, "http_referer"),
+        title=_optional_string_option(options, "title"),
         transport=transport,
         default_trace_seed=default_trace_seed,
     )
+
+
+def _optional_string_option(options: Mapping[str, object], key: str) -> str | None:
+    value = options.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise AdapterConstructionError(
+            f"openrouter policy option {key!r} must be a non-empty string"
+        )
+    return value
 
 
 def _with_provider_metadata(
@@ -305,39 +334,61 @@ def _sum_usage_tokens(response_attempts: list[JsonObject]) -> tuple[int, int]:
         if not isinstance(usage_raw, Mapping):
             continue
         usage = cast(Mapping[str, object], usage_raw)
-        input_tokens = usage.get("input_tokens")
-        output_tokens = usage.get("output_tokens")
-        if isinstance(input_tokens, int) and not isinstance(input_tokens, bool):
-            tokens_in_total += input_tokens
-        if isinstance(output_tokens, int) and not isinstance(output_tokens, bool):
-            tokens_out_total += output_tokens
+        prompt_tokens = usage.get("prompt_tokens")
+        completion_tokens = usage.get("completion_tokens")
+        if isinstance(prompt_tokens, int) and not isinstance(prompt_tokens, bool):
+            tokens_in_total += prompt_tokens
+        if isinstance(completion_tokens, int) and not isinstance(completion_tokens, bool):
+            tokens_out_total += completion_tokens
     return tokens_in_total, tokens_out_total
 
 
 def _extract_response_output(response_payload: JsonObject) -> object:
-    content_raw = response_payload.get("content")
-    if not isinstance(content_raw, list):
-        raise AnthropicProviderError("Anthropic response did not include a content array")
+    choices_raw = response_payload.get("choices")
+    if not isinstance(choices_raw, list) or not choices_raw:
+        raise OpenRouterProviderError("OpenRouter response did not include choices")
 
-    text_fragments: list[str] = []
-    for block in content_raw:
-        if not isinstance(block, Mapping):
-            continue
-        block_type = block.get("type")
-        if block_type == "tool_use" and block.get("name") == _TOOL_NAME:
-            tool_input = block.get("input")
-            if isinstance(tool_input, Mapping):
-                return cast(JsonObject, deepcopy(tool_input))
-        if block_type == "text":
-            text = block.get("text")
+    first_choice = choices_raw[0]
+    if not isinstance(first_choice, Mapping):
+        raise OpenRouterProviderError("OpenRouter choice payload was not an object")
+
+    message_raw = first_choice.get("message")
+    if not isinstance(message_raw, Mapping):
+        raise OpenRouterProviderError("OpenRouter response did not include a message")
+
+    parsed = message_raw.get("parsed")
+    if isinstance(parsed, Mapping):
+        return cast(JsonObject, deepcopy(parsed))
+
+    tool_calls_raw = message_raw.get("tool_calls")
+    if isinstance(tool_calls_raw, list):
+        for tool_call in tool_calls_raw:
+            if not isinstance(tool_call, Mapping):
+                continue
+            function_raw = tool_call.get("function")
+            if not isinstance(function_raw, Mapping):
+                continue
+            arguments = function_raw.get("arguments")
+            if isinstance(arguments, str):
+                try:
+                    decoded = json.loads(arguments)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(decoded, Mapping):
+                    return cast(JsonObject, decoded)
+
+    content = message_raw.get("content")
+    if isinstance(content, str) and content.strip():
+        return content
+    if isinstance(content, list):
+        text_fragments: list[str] = []
+        for item in content:
+            if not isinstance(item, Mapping):
+                continue
+            text = item.get("text")
             if isinstance(text, str):
                 text_fragments.append(text)
+        if text_fragments:
+            return "".join(text_fragments)
 
-    if text_fragments:
-        return "".join(text_fragments)
-
-    stop_reason = response_payload.get("stop_reason")
-    if isinstance(stop_reason, str) and stop_reason == "refusal":
-        raise AnthropicProviderError("Anthropic refused the request")
-
-    raise AnthropicProviderError("Anthropic response did not include tool output or text")
+    raise OpenRouterProviderError("OpenRouter response did not include structured content")
