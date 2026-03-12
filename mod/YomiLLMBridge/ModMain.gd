@@ -10,6 +10,7 @@ const DEFAULT_FALLBACK_MODE := "safe_continue"
 const DEFAULT_GAME_VERSION := "supported-build-16151810"
 
 var bridge_client: Node = null
+var turn_hook: Node = null
 var options_ui: Control = null
 var bridge_config = {}
 var mod_metadata = {}
@@ -67,10 +68,23 @@ func _on_bridge_state_changed(state: String, details: Dictionary) -> void:
 
 func _on_handshake_completed(hello_ack: Dictionary) -> void:
 	print("YomiLLMBridge handshake complete: %s" % hello_ack.get("payload", {}))
+	_attach_turn_hook()
 
 
 func _on_handshake_failed(reason: String) -> void:
 	printerr("YomiLLMBridge handshake failed: %s" % reason)
+
+
+func _attach_turn_hook() -> void:
+	if turn_hook != null:
+		return
+	var script = load(_script_base_dir() + "/bridge/TurnHook.gd")
+	if script == null:
+		printerr("YomiLLMBridge failed to load TurnHook.gd")
+		return
+	turn_hook = script.new()
+	add_child(turn_hook)
+	turn_hook.attach(bridge_client, bridge_config)
 
 
 func _build_handshake_context() -> Dictionary:
