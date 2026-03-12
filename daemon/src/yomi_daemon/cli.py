@@ -69,6 +69,7 @@ async def _run_async(args: argparse.Namespace) -> int:
         port=runtime_config.transport.port,
         policy_mapping=runtime_config.policy_mapping,
         config_snapshot=runtime_config.to_config_payload(),
+        runtime_config=runtime_config,
     )
     await server.start()
     try:
