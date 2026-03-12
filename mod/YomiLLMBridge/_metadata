@@ -1,0 +1,6 @@
+{
+  "name": "YomiLLMBridge",
+  "author": "yomi-ai",
+  "version": "0.0.1",
+  "description": "Local bridge mod scaffold for YOMI Hustle LLM Arena."
+}

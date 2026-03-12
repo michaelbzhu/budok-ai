@@ -1,0 +1,1 @@
+"""Tournament ratings placeholder."""

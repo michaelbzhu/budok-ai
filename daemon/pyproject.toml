@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "yomi-daemon"
+version = "0.0.1"
+description = "Daemon and local tooling for the YOMI Hustle LLM Arena project."
+readme = "../README.md"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+yomi-daemon = "yomi_daemon.cli:main"
+yomi-daemon-check-uv = "yomi_daemon.tooling:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3.0",
+  "ruff>=0.8.0",
+  "ty>=0.0.1a16"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/yomi_daemon"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+addopts = "-ra"
