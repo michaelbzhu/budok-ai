@@ -20,6 +20,7 @@ This repository is organized around work units in `plans/v0.md`.
 
 - Keep changes scoped to the active work unit.
 - Before committing, update the markdown task checkboxes in that work unit for completed acceptance criteria and completed tests.
+- Before committing, add or update an `Execution notes for future agents` section in the completed work unit with execution-specific facts, pitfalls, identifiers, recovered paths, warnings, or follow-up context that arose during implementation and are not already captured in the plan.
 - Do not check off tasks that are only partially complete.
 - If a work unit needs follow-up work, leave the remaining tasks unchecked.
 
