@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from jsonschema import Draft202012Validator
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCHEMA_DIR = REPO_ROOT / "schemas"
@@ -18,6 +20,7 @@ def parse_schemas(schema_dir: Path = SCHEMA_DIR) -> list[dict[str, Any]]:
     for schema_path in sorted(schema_dir.glob("*.json")):
         with schema_path.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
+        Draft202012Validator.check_schema(payload)
         results.append(
             {
                 "path": str(schema_path.relative_to(REPO_ROOT)),

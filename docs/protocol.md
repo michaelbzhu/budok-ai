@@ -1,5 +1,204 @@
 # Protocol
 
-Versioned transport schemas live under `schemas/`. `WU-002` defines the concrete protocol contract and typed Python models.
+Versioned transport schemas live under `schemas/`, and the daemon-side typed models live in `daemon/src/yomi_daemon/protocol.py`.
 
-Until then, schema files in this repository are intentionally lightweight placeholders so local validation wiring can exist before protocol semantics land.
+## Envelope
+
+Every daemon/mod message is wrapped in the common v1 envelope:
+
+```json
+{
+  "type": "decision_request",
+  "version": "v1",
+  "ts": "2026-03-12T00:00:00Z",
+  "payload": {}
+}
+```
+
+- `type` selects the payload schema.
+- `version` is the negotiated protocol version for the envelope and payload family.
+- `ts` is an RFC 3339 / ISO 8601 UTC timestamp.
+- `payload` contains the message-specific body.
+
+The v1 message-type enum is:
+
+- `hello`
+- `hello_ack`
+- `decision_request`
+- `action_decision`
+- `event`
+- `match_ended`
+- `config`
+
+## Payloads
+
+The current schema set is:
+
+- `schemas/hello.v1.json`
+- `schemas/hello-ack.v1.json`
+- `schemas/decision-request.v1.json`
+- `schemas/action-decision.v1.json`
+- `schemas/event.v1.json`
+- `schemas/match-ended.v1.json`
+- `schemas/config.v1.json`
+- `schemas/envelope.json`
+
+### Handshake
+
+`Hello` carries the mod build metadata and the list of supported protocol versions:
+
+- `game_version`
+- `mod_version`
+- `schema_version`
+- `supported_protocol_versions`
+
+`HelloAck` confirms the negotiated version and pins the daemon-side match mapping:
+
+- `accepted_protocol_version`
+- `accepted_schema_version`
+- `daemon_version`
+- `policy_mapping`
+- optional `config` snapshot
+
+### Decision Request
+
+`DecisionRequest` is the canonical turn input to a policy. The required fields are:
+
+- `match_id`
+- `turn_id`
+- `player_id`
+- `deadline_ms`
+- `state_hash`
+- `legal_actions_hash`
+- `decision_type`
+- `observation`
+- `legal_actions`
+
+The v1 `decision_type` enum is intentionally narrow: `turn_action`.
+
+Recommended metadata fields are optional but versioned in-schema already:
+
+- `trace_seed`
+- `game_version`
+- `mod_version`
+- `schema_version`
+- `ruleset_id`
+- `prompt_version`
+
+`observation` is deterministic and compact. The schema requires the shared fields from the spec:
+
+- `tick`
+- `frame`
+- `active_player`
+- `fighters`
+- `objects`
+- `stage`
+- `history`
+
+Each fighter entry is typed with the common strategic fields from the spec, including position, velocity, meter, burst, and current state.
+
+Each `legal_actions` entry includes:
+
+- `action`
+- optional `label`
+- `payload_spec`
+- `supports.di`
+- `supports.feint`
+- `supports.reverse`
+- optional tactical metadata such as `damage`, `startup_frames`, `range`, `meter_cost`, and `description`
+
+### Action Decision
+
+`ActionDecision` is the structured response returned by an adapter or daemon fallback path. Required fields:
+
+- `match_id`
+- `turn_id`
+- `action`
+- `data`
+- `extra`
+
+`extra.di` is a percentage-int vector bounded to `[-100, 100]` on both axes. `extra.feint` and `extra.reverse` are explicit booleans even when false.
+
+Optional debug metadata is schema-recognized:
+
+- `policy_id`
+- `latency_ms`
+- `tokens_in`
+- `tokens_out`
+- `reasoning`
+- `notes`
+- `fallback_reason`
+
+The v1 fallback-reason enum is:
+
+- `timeout`
+- `disconnect`
+- `malformed_output`
+- `illegal_output`
+- `stale_response`
+
+### Events And Match End
+
+`Event` is the shared telemetry payload. The standard event enum is:
+
+- `MatchStarted`
+- `TurnRequested`
+- `DecisionReceived`
+- `DecisionApplied`
+- `DecisionFallback`
+- `MatchEnded`
+- `Error`
+
+`MatchEnded` carries the final match summary fields called out in the spec:
+
+- `match_id`
+- `winner`
+- `end_reason`
+- `total_turns`
+- `end_tick`
+- `end_frame`
+- optional `replay_path`
+- `errors`
+
+### Config Snapshot
+
+`config.v1.json` is the wire-safe config snapshot used during handshake and run pinning. It is intentionally narrower than later daemon file-loading concerns and currently includes:
+
+- `timeout_profile`
+- `decision_timeout_ms`
+- `fallback_mode`
+- `logging`
+- `policy_mapping`
+- `character_selection`
+- optional `stage_id`
+
+The v1 enums here align with the unified spec:
+
+- timeout profiles: `strict_local`, `llm_tournament`
+- fallback modes: `safe_continue`, `heuristic_guard`, `last_valid_replayable`
+- character modes: `mirror`, `assigned`, `random_from_pool`
+
+## Compatibility Policy
+
+Protocol versioning is append-only.
+
+- Non-breaking additions to an existing version may add optional fields or new enum members only when older readers can ignore them safely.
+- Breaking changes require a new protocol version and a new schema file version.
+- The mod proposes `supported_protocol_versions` during `Hello`.
+- The daemon must respond with exactly one accepted version in `HelloAck`.
+- v1 validators reject unknown or stale envelope versions rather than silently coercing them.
+
+## Validation Boundaries
+
+Schema validation and legality validation are separate on purpose.
+
+- Schema validation checks structure, enum values, scalar bounds, and timestamp formatting.
+- Daemon-side validation ensures a payload is well-formed enough to route, log, or reject safely.
+- Mod-side legality validation remains authoritative for live action application.
+
+Examples:
+
+- A schema-valid `ActionDecision` can still be illegal if `action` is no longer present in the current legal set.
+- A schema-valid `DecisionRequest` can still represent stale game state if `turn_id` no longer matches the live turn when the response returns.
+
+That split is deliberate: the protocol layer owns structural correctness, while the game remains the authority on legality.

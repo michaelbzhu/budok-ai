@@ -8,7 +8,9 @@ version = "0.0.1"
 description = "Daemon and local tooling for the YOMI Hustle LLM Arena project."
 readme = "../README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+  "jsonschema>=4.23.0"
+]
 
 [project.scripts]
 yomi-daemon = "yomi_daemon.cli:main"

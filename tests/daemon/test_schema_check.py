@@ -21,11 +21,14 @@ def test_schema_check_script_parses_all_schema_files() -> None:
 
     payload = json.loads(completed.stdout)
 
-    assert payload["schema_count"] == 5
+    assert payload["schema_count"] == 8
     assert [entry["path"] for entry in payload["schemas"]] == [
         "schemas/action-decision.v1.json",
         "schemas/config.v1.json",
         "schemas/decision-request.v1.json",
         "schemas/envelope.json",
         "schemas/event.v1.json",
+        "schemas/hello-ack.v1.json",
+        "schemas/hello.v1.json",
+        "schemas/match-ended.v1.json",
     ]
