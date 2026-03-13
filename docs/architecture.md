@@ -66,6 +66,7 @@ Placeholder stubs exist for `google`, `local`, and `ollama` but are not register
 | `LegalActionBuilder.gd` | Legal action enumeration from UI state |
 | `DecisionValidator.gd` | Action legality and schema validation |
 | `ActionApplier.gd` | Native action application via `on_action_selected()` |
+| `AutoMatchStarter.gd` | Programmatic match start from daemon config (bypasses menu UI) |
 | `FallbackHandler.gd` | Timeout and error fallback action selection |
 | `BridgeClient.gd` | WebSocket transport to daemon |
 | `ProtocolCodec.gd` | Envelope encoding/decoding and canonical hashing |

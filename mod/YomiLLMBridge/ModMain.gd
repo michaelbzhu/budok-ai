@@ -11,6 +11,7 @@ const DEFAULT_GAME_VERSION := "supported-build-16151810"
 
 var bridge_client: Node = null
 var turn_hook: Node = null
+var auto_match_starter = null
 var options_ui: Control = null
 var bridge_config = {}
 var mod_metadata = {}
@@ -79,6 +80,7 @@ func _on_bridge_state_changed(state: String, details: Dictionary) -> void:
 func _on_handshake_completed(hello_ack: Dictionary) -> void:
 	print("YomiLLMBridge handshake complete: %s" % hello_ack.get("payload", {}))
 	_attach_turn_hook()
+	_auto_start_match(hello_ack)
 
 
 func _on_handshake_failed(reason: String) -> void:
@@ -102,6 +104,24 @@ func _attach_turn_hook() -> void:
 func _on_turn_hook_status_changed(_snapshot: Dictionary) -> void:
 	if options_ui != null:
 		options_ui.update_bridge_snapshot(get_bridge_status())
+
+
+func _auto_start_match(hello_ack: Dictionary) -> void:
+	if auto_match_starter != null:
+		return
+	var script = load(_script_base_dir() + "/bridge/AutoMatchStarter.gd")
+	if script == null:
+		printerr("YomiLLMBridge failed to load AutoMatchStarter.gd")
+		return
+	auto_match_starter = script.new()
+	# Defer to next frame so the scene tree is fully settled after handshake
+	call_deferred("_deferred_auto_start", hello_ack)
+
+
+func _deferred_auto_start(hello_ack: Dictionary) -> void:
+	if auto_match_starter == null:
+		return
+	auto_match_starter.start_match(hello_ack)
 
 
 func _build_handshake_context() -> Dictionary:
