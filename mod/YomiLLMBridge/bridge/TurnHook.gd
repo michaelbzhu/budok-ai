@@ -81,6 +81,15 @@ func _process(_delta: float) -> void:
 	_attach_to_game(Global.current_game, compatibility)
 
 
+func _check_already_actionable() -> void:
+	if _game == null or _match_ended:
+		return
+	var actionable = _get_actionable_players()
+	if not actionable.empty():
+		print("YomiLLMBridge: players already actionable on attach: %s" % [actionable])
+		_on_player_actionable()
+
+
 func _on_player_actionable() -> void:
 	if _game == null or _match_ended:
 		return
@@ -342,6 +351,9 @@ func _attach_to_game(game, compatibility: Dictionary) -> void:
 	_publish_status("active", true, [], compatibility.get("details", {}))
 	print("YomiLLMBridge TurnHook attached to game, match_id=%s" % _match_id)
 
+	# If players are already actionable (signal fired before we attached), trigger immediately
+	call_deferred("_check_already_actionable")
+
 
 func _publish_compatibility_failure(compatibility: Dictionary) -> void:
 	var errors = compatibility.get("errors", [])
@@ -463,7 +475,7 @@ func _derive_end_tick() -> int:
 func _derive_end_frame() -> int:
 	if _game == null:
 		return 0
-	return max(int(_game.p1.state_tick), int(_game.p2.state_tick))
+	return int(_game.current_tick)
 
 
 func _find_replay_path():

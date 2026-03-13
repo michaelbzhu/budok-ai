@@ -17,13 +17,19 @@ var bridge_config = {}
 var mod_metadata = {}
 
 
+func _init(_mod_loader = null) -> void:
+	pass
+
+
 func _ready() -> void:
+	print("YomiLLMBridge _ready() starting, base_dir=%s" % _script_base_dir())
 	mod_metadata = _load_json_document(_metadata_path())
 	bridge_config = _normalize_config(_load_json_document(_config_path()))
+	print("YomiLLMBridge config loaded, host=%s" % bridge_config.get("transport", {}).get("host", "?"))
 
 	bridge_client = _instantiate_script(_script_base_dir() + "/bridge/BridgeClient.gd")
 	if bridge_client == null:
-		printerr("YomiLLMBridge failed to load BridgeClient.gd")
+		printerr("YomiLLMBridge failed to load BridgeClient.gd from %s" % (_script_base_dir() + "/bridge/BridgeClient.gd"))
 		return
 
 	add_child(bridge_client)

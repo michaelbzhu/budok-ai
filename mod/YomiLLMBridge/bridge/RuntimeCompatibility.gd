@@ -14,7 +14,6 @@ const REQUIRED_FIGHTER_PROPERTIES := [
 	"queued_extra",
 	"state_interruptable",
 	"game_over",
-	"state_tick",
 ]
 const REQUIRED_FIGHTER_METHODS := ["on_action_selected"]
 

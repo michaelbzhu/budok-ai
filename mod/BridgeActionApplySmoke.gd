@@ -83,6 +83,9 @@ func _run() -> void:
 
 
 func _compare_native_and_bridge_apply(action_applier) -> Dictionary:
+	# The daemon sends lowercase "di" and dict/null prediction, but the
+	# ActionApplier must normalize to the game's expected format:
+	# uppercase "DI" and integer prediction (-1 = no prediction).
 	var payload = {
 		"action": "Slash",
 		"data": {"target": "enemy", "strength": 2},
@@ -94,34 +97,34 @@ func _compare_native_and_bridge_apply(action_applier) -> Dictionary:
 		},
 	}
 
-	var native_fighter = MockFighter.new("p1")
 	var bridge_fighter = MockFighter.new("p1")
-
-	native_fighter.on_action_selected(
-		payload["action"],
-		payload["data"].duplicate(true),
-		payload["extra"].duplicate(true)
-	)
 	var apply_result = action_applier.apply_decision(payload, bridge_fighter)
-
-	var bridge_snapshot = bridge_fighter.snapshot()
-	var native_snapshot = native_fighter.snapshot()
-	var bridge_json = to_json(bridge_snapshot)
-	var native_json = to_json(native_snapshot)
 
 	if not bool(apply_result.get("applied", false)):
 		return {"ok": false, "reason": "bridge_apply_failed", "apply_result": apply_result}
 	if str(apply_result.get("apply_path", "")) != "native_method":
 		return {"ok": false, "reason": "bridge_did_not_use_native_method", "apply_result": apply_result}
-	if bridge_json != native_json:
-		return {
-			"ok": false,
-			"reason": "bridge_and_native_snapshots_diverged",
-			"bridge": bridge_snapshot,
-			"native": native_snapshot,
-			"bridge_json": bridge_json,
-			"native_json": native_json,
-		}
+
+	var bridge_snapshot = bridge_fighter.snapshot()
+
+	# Verify the bridge normalized extra to the game-expected format
+	var bridge_extra = bridge_snapshot.get("queued_extra", {})
+	if not bridge_extra.has("DI"):
+		return {"ok": false, "reason": "bridge_missing_uppercase_DI", "extra": bridge_extra}
+	if bridge_extra.has("di"):
+		return {"ok": false, "reason": "bridge_has_lowercase_di", "extra": bridge_extra}
+	var bridge_di = bridge_extra.get("DI")
+	if not (bridge_di is Dictionary) or int(bridge_di.get("x", 0)) != 12 or int(bridge_di.get("y", 0)) != -7:
+		return {"ok": false, "reason": "bridge_DI_values_wrong", "DI": bridge_di}
+	if not (bridge_extra.get("prediction") is int) or int(bridge_extra.get("prediction")) < -1:
+		return {"ok": false, "reason": "bridge_prediction_not_integer", "prediction": bridge_extra.get("prediction")}
+	if not bool(bridge_extra.get("feint")):
+		return {"ok": false, "reason": "bridge_feint_wrong", "feint": bridge_extra.get("feint")}
+
+	# Verify data is passed through unchanged
+	var bridge_data = bridge_snapshot.get("queued_data", {})
+	if str(bridge_data.get("target", "")) != "enemy" or int(bridge_data.get("strength", 0)) != 2:
+		return {"ok": false, "reason": "bridge_data_wrong", "data": bridge_data}
 
 	return {
 		"ok": true,

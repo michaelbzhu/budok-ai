@@ -26,7 +26,7 @@ const OBJECT_CATEGORY_MAP := {
 
 func build_observation(game, active_fighter, history: Array = []) -> Dictionary:
 	var active_player = _fighter_id(active_fighter)
-	var bounded_history = history.slice(max(0, history.size() - MAX_HISTORY_ENTRIES), history.size())
+	var bounded_history = _bounded_history(history)
 	return {
 		"tick": int(game.current_tick),
 		"frame": int(active_fighter.current_state().current_tick),
@@ -48,8 +48,8 @@ func _build_fighter_observation(fighter) -> Dictionary:
 		"max_hp": int(fighter.MAX_HEALTH),
 		"meter": int(fighter.supers_available) * int(fighter.MAX_SUPER_METER) + int(fighter.super_meter),
 		"burst": int(fighter.bursts_available),
-		"position": {"x": pos.x, "y": pos.y},
-		"velocity": {"x": vel.x, "y": vel.y},
+		"position": {"x": int(pos.x), "y": int(pos.y)},
+		"velocity": {"x": int(vel.x), "y": int(vel.y)},
 		"facing": "right" if int(fighter.get_facing_int()) == 1 else "left",
 		"current_state": str(fighter.current_state().state_name),
 		"combo_count": int(fighter.combo_count),
@@ -57,7 +57,7 @@ func _build_fighter_observation(fighter) -> Dictionary:
 		"hitlag": int(fighter.hitlag_ticks),
 		"state_interruptable": bool(fighter.state_interruptable) if "state_interruptable" in fighter else false,
 		"can_feint": bool(fighter.can_feint) if "can_feint" in fighter else false,
-		"grounded": pos.y <= 0.0,
+		"grounded": int(pos.y) <= 0,
 	}
 	# Optional advanced fighter state - only emitted when available in game
 	if "air_actions_remaining" in fighter:
@@ -159,7 +159,7 @@ func _build_objects(game) -> Array:
 		var raw_type = _resolve_object_type(obj)
 		var entry = {
 			"type": raw_type,
-			"position": {"x": obj_pos.x, "y": obj_pos.y},
+			"position": {"x": int(obj_pos.x), "y": int(obj_pos.y)},
 		}
 		var category = _classify_object(raw_type)
 		if category != "unknown":
@@ -206,3 +206,13 @@ func _sort_objects(a: Dictionary, b: Dictionary) -> bool:
 
 func _fighter_id(fighter) -> String:
 	return "p1" if int(fighter.id) == 1 else "p2"
+
+
+func _bounded_history(history: Array) -> Array:
+	if history.size() <= MAX_HISTORY_ENTRIES:
+		return history.duplicate()
+	var result = []
+	var start = history.size() - MAX_HISTORY_ENTRIES
+	for i in range(start, history.size()):
+		result.append(history[i])
+	return result

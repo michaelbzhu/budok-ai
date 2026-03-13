@@ -10,9 +10,9 @@ YOMI Hustle is only available for Windows and Linux on Steam. On macOS, we run t
 - [x] Step 4: Download game via DepotDownloader (SteamCMD crashes under emulation)
 - [x] Step 4b: Copy game files to VM and verify bare game boots (confirmed working)
 - [x] Step 5: Install the mod (packaged, pushed, extracted in VM)
-- [x] Step 6: Configure networking (gateway IP: `192.168.139.1`, mod config updated)
-- [ ] Step 7: Start the daemon
-- [ ] Step 8: Launch the game headlessly
+- [x] Step 6: Configure networking (bridge IP: `192.168.139.3`, mod config updated)
+- [x] Step 7: Start the daemon
+- [x] Step 8: Launch the game headlessly (596-decision match completed to KO, baseline/random)
 
 ## Architecture
 
@@ -156,7 +156,7 @@ You should see the YOMI Hustle main menu (version `1.9.20-steam`, "Mod List" in 
 
 ## Step 5: Install the mod
 
-Package the mod on your Mac and push it into the VM:
+Package the mod on your Mac and push the **zip** into the VM's `mods/` directory:
 
 ```bash
 scripts/package_mod.sh
@@ -164,16 +164,12 @@ orb run -m ubuntu mkdir -p /home/$USER/games/yomi/mods
 orb push -m ubuntu dist/YomiLLMBridge.zip /home/$USER/games/yomi/mods/YomiLLMBridge.zip
 ```
 
-Extract the mod. The zip already contains a `YomiLLMBridge/` directory, so extract directly (do NOT use `-d`):
-
-```bash
-orb run -m ubuntu bash -c "cd /home/$USER/games/yomi/mods && rm -rf YomiLLMBridge && unzip -o YomiLLMBridge.zip"
-```
+**Important**: The ModLoader loads mods from `.zip` files via `ProjectSettings.load_resource_pack()`. It does NOT load loose directories. Only the zip file in `mods/` matters. The extracted directory is irrelevant to the loader.
 
 Verify:
 
 ```bash
-orb run -m ubuntu ls /home/$USER/games/yomi/mods/YomiLLMBridge/ModMain.gd
+orb run -m ubuntu ls /home/$USER/games/yomi/mods/YomiLLMBridge.zip
 ```
 
 ## Step 6: Configure networking
@@ -186,27 +182,28 @@ The mod needs to connect to the daemon on your Mac. The daemon needs to accept c
 uv run --project daemon yomi-daemon --host 0.0.0.0 --port 8765
 ```
 
-**Mod side** — update `transport.host` in the mod config to point at the Mac host. OrbStack VMs reach the host via the default gateway IP:
+**Mod side** — update `transport.host` in the mod config to point at the Mac's bridge interface IP. Find it with:
 
 ```bash
-orb run -m ubuntu bash -c "ip route | grep default | awk '{print \$3}'"
-# Expected output: 192.168.139.1
+ifconfig bridge100 | grep "inet " | awk '{print $2}'
+# Expected output: 192.168.139.3
 ```
 
-Update the mod config:
+**Note**: The default gateway IP from `ip route` inside the VM (`192.168.139.1`) may not work — use the Mac's `bridge100` interface IP instead.
+
+Update the host in the mod source, repackage, and push the zip:
 
 ```bash
-orb run -m ubuntu bash -c "sed -i 's/\"host\": \"127.0.0.1\"/\"host\": \"192.168.139.1\"/' /home/$USER/games/yomi/mods/YomiLLMBridge/config/default_config.json"
+# On your Mac — temporarily set VM host, package, push, then restore default
+sed -i '' 's/"host": "127.0.0.1"/"host": "192.168.139.3"/' mod/YomiLLMBridge/config/default_config.json
+scripts/package_mod.sh
+orb push -m ubuntu dist/YomiLLMBridge.zip /home/$USER/games/yomi/mods/YomiLLMBridge.zip
+sed -i '' 's/"host": "192.168.139.3"/"host": "127.0.0.1"/' mod/YomiLLMBridge/config/default_config.json
 ```
 
-Verify:
+The config must be baked into the zip because the ModLoader reads it via `res://` paths from the resource pack.
 
-```bash
-orb run -m ubuntu head -5 /home/$USER/games/yomi/mods/YomiLLMBridge/config/default_config.json
-# Should show "host": "192.168.139.1"
-```
-
-**Note**: The gateway IP (`192.168.139.1`) is stable across OrbStack VM restarts but may differ on your machine. Always check with `ip route` if connectivity fails.
+**Note**: The bridge IP (`192.168.139.3`) is stable across OrbStack VM restarts but may differ on your machine. Always check with `ifconfig bridge100` if connectivity fails.
 
 ## Step 7: Start the daemon on Mac
 
@@ -238,14 +235,67 @@ The full automated flow is:
 
 No manual menu interaction is needed.
 
-To take a debug screenshot at any point, find the display number and use `scrot`:
+To take a debug screenshot, you need both the correct display number and the Xauthority file created by `xvfb-run`:
 
 ```bash
-# From another terminal
-orb run -m ubuntu bash -c "DISPLAY=:99 scrot /tmp/yomi_debug.png"
+# Find the display and correct Xauthority
+orb run -m ubuntu bash -c '
+DISP=:$(ls /tmp/.X11-unix/ | tail -1 | tr -d "X")
+for xauth in /tmp/xvfb-run.*/Xauthority; do
+  DISPLAY=$DISP XAUTHORITY=$xauth scrot /tmp/yomi_debug.png 2>/dev/null && break
+done
+'
 orb pull -m ubuntu /tmp/yomi_debug.png /tmp/yomi_debug.png
 open /tmp/yomi_debug.png
 ```
+
+`xvfb-run` sets up its own Xauthority, so plain `DISPLAY=:99 scrot` will fail with "Authorization required". You must pass the matching Xauthority file.
+
+## ModLoader requirements
+
+The game's built-in ModLoader (`res://modloader/ModLoader.gd`) has specific requirements that are not obvious from the mod API:
+
+**Zip-only loading**: The loader calls `ProjectSettings.load_resource_pack()` on each `.zip` file in `<game_dir>/mods/`. Loose directories are ignored.
+
+**`_metadata` must have all 10 fields**: `_verifyMetadata()` requires exactly these keys: `name`, `friendly_name`, `description`, `author`, `version`, `link`, `id`, `overwrites`, `requires`, `priority`. Missing any causes the mod to be silently skipped.
+
+**Constructor receives ModLoader reference**: The loader calls `script.new(self)`, passing itself as a constructor argument. `ModMain.gd` must define `func _init(_mod_loader = null)` to accept this. Without it, `_create_instance` fails and the mod is silently skipped.
+
+**`_editMetaData` writes fail silently**: The loader attempts to write back to `_metadata` inside the zip (to set `id = "12345"`). This fails because zip resource packs are read-only, producing `ERROR: File must be opened before use. at: store_string`. This is non-fatal.
+
+**No mod output in stdout**: Godot `print()` calls from mods loaded via resource packs may not appear in stdout depending on the load order and buffering. Use daemon-side logs and screenshots for debugging instead.
+
+## First complete match
+
+The first full match ran to natural completion: **596 decisions over 2887 ticks, P2 won by KO** (P1 HP dropped to 31). The daemon received a proper `match_ended` envelope with `reason=ko` and wrote results to `runs/`. Both players used `baseline/random` policy with random character selection (Wizard mirror).
+
+This validates the full pipeline: game boots → mod connects → daemon orchestrates → turns resolve → match ends cleanly → results persist.
+
+### Non-fatal warnings during match
+
+- ~1207 `FGObject` errors in the game log — these are non-fatal and the game continues through them. Likely related to headless rendering or zero-direction moves.
+- Some XYPlot nodes (Roll/Direction, Summon/Direction, DiveKick2/Direction, Grab/Direction) produce zero-bound payload_specs, meaning direction-based moves default to `{"x": 0, "y": 0}`. The `panel_radius` property detection works for Geyser but may not be readable on all widget instances. This doesn't crash the game but limits move variety.
+
+## Known issues (resolved)
+
+**Match crash from FixedMath panics (FIXED)**: The first test (50 decisions) ended with a segfault from `tbfg.so`. Root cause was three interacting bugs:
+
+1. **Missing payload_spec for game UI widgets**: `LegalActionBuilder._classify_data_child()` failed to recognize `XYPlot` and `CountOption` nodes because they extend generic containers and their node names don't match existing patterns. The baseline produced empty `data` for moves like Geyser, causing null access → FixedMath panic.
+
+2. **DI key case mismatch**: Daemon sends lowercase `"di"`, game's `process_extra()` checks uppercase `"DI"`. The `ActionApplier` was passing through lowercase.
+
+3. **Prediction format mismatch**: Daemon sends `prediction: null`, game expects integer `-1`.
+
+Fixed by adding XYPlot/CountOption detection in LegalActionBuilder, uppercase DI normalization in ActionApplier, and integer prediction normalization.
+
+## Known issues (open)
+
+**Observation float types**: Values from `get_pos()` and `get_vel()` may serialize as strings or floats depending on the game's FixedMath types. The `ObservationBuilder` must cast with `int()` to satisfy the daemon's JSON schema validation (which expects `"type": "number"`).
+
+**GDScript 3.x compatibility**: Several GDScript patterns that work in 3.6+ fail in 3.5.1:
+- `max()`/`min()` return `float`, not `int` — wrap in `int()` when the function declares `-> int`
+- `seed` is a built-in function name and cannot be used as a parameter name
+- `Array.slice()` does not exist — use manual iteration
 
 ## Caveats
 

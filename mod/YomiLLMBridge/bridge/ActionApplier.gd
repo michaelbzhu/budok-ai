@@ -49,7 +49,9 @@ func _resolve_queued_data(data):
 
 
 func _resolve_queued_extra(extra):
-	# Normalize the extra dict into the shape the engine expects
+	# Normalize the extra dict into the shape the engine expects.
+	# The game's process_extra() checks for uppercase "DI", and
+	# prediction is an integer (-1 = none) not a dict.
 	if extra == null:
 		return null
 	if not (extra is Dictionary):
@@ -57,28 +59,26 @@ func _resolve_queued_extra(extra):
 
 	var resolved = {}
 
-	var di = extra.get("di")
+	# The game checks "DI" (uppercase) in process_extra(); lowercase "di" is ignored.
+	var di = extra.get("di", extra.get("DI"))
 	if di != null and di is Dictionary:
-		resolved["di"] = {
+		resolved["DI"] = {
 			"x": int(di.get("x", 0)),
 			"y": int(di.get("y", 0)),
 		}
-	else:
-		resolved["di"] = null
 
 	resolved["feint"] = bool(extra.get("feint", false))
 	resolved["reverse"] = bool(extra.get("reverse", false))
-	resolved["prediction"] = _resolve_prediction(extra.get("prediction"))
+
+	# The game's get_extra() sets prediction to an integer category index
+	# (-1 = no prediction). Null or dict values are not expected.
+	var prediction = extra.get("prediction")
+	if prediction == null or prediction is Dictionary:
+		resolved["prediction"] = -1
+	else:
+		resolved["prediction"] = int(prediction)
 
 	return resolved
-
-
-func _resolve_prediction(prediction):
-	if prediction == null:
-		return null
-	if prediction is Dictionary:
-		return prediction.duplicate(true)
-	return null
 
 
 func _build_apply_result(action_name: String, fighter, apply_path: String) -> Dictionary:

@@ -3,11 +3,11 @@ extends Reference
 var _rng := RandomNumberGenerator.new()
 
 
-func _init(seed = null) -> void:
-	if seed == null:
+func _init(rng_seed = null) -> void:
+	if rng_seed == null:
 		_rng.randomize()
 	else:
-		_rng.seed = int(seed)
+		_rng.seed = int(rng_seed)
 
 
 func new_match_id(prefix := "match") -> String:

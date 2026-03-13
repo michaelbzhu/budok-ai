@@ -176,6 +176,28 @@ func _build_field_descriptor(child) -> Dictionary:
 			slider_descriptor["semantic_hint"] = str(semantic_hint)
 		return slider_descriptor
 
+	# CountOption nodes (e.g. Geyser Charge): get_data() returns {"count": int}
+	if kind == "count":
+		var min_val = int(_read_property(child, "min_value", 1))
+		var max_val = int(_read_property(child, "max_value", 1))
+		var count_descriptor = {
+			"type": "object",
+			"additionalProperties": false,
+			"required": ["count"],
+			"ui_kind": "count",
+			"properties": {
+				"count": {
+					"type": "integer",
+					"minimum": min_val,
+					"maximum": max_val,
+					"default": min_val,
+				},
+			},
+		}
+		if semantic_hint != null:
+			count_descriptor["semantic_hint"] = str(semantic_hint)
+		return count_descriptor
+
 	if kind == "option" or kind == "enum":
 		var choices = _coerce_array(_read_property(child, "choices", []))
 		var option_descriptor = {
@@ -217,6 +239,44 @@ func _build_field_descriptor(child) -> Dictionary:
 		return direction_descriptor
 
 	if kind == "xy_plot" or kind == "xy" or kind == "vector2":
+		# XYPlot nodes use panel_radius and PERCENT_MAX to produce integer
+		# percentage values in [-100, 100]. Detect this for proper bounds.
+		var pct_max = int(_read_property(child, "PERCENT_MAX", 0))
+		if pct_max <= 0:
+			pct_max = 100  # XYPlot default
+		var has_panel_radius = _read_property(child, "panel_radius", null) != null
+		if has_panel_radius:
+			# Real XYPlot: produces integer percentages via as_percentage_int_vec()
+			var default_val = _read_property(child, "default_value", null)
+			var default_x = 0
+			var default_y = 0
+			if default_val != null and default_val is Vector2:
+				default_x = int(default_val.x * pct_max)
+				default_y = int(default_val.y * pct_max)
+			var xy_descriptor = {
+				"type": "object",
+				"additionalProperties": false,
+				"required": ["x", "y"],
+				"ui_kind": "xy",
+				"properties": {
+					"x": {
+						"type": "integer",
+						"minimum": -pct_max,
+						"maximum": pct_max,
+						"default": default_x,
+					},
+					"y": {
+						"type": "integer",
+						"minimum": -pct_max,
+						"maximum": pct_max,
+						"default": default_y,
+					},
+				},
+			}
+			if semantic_hint != null:
+				xy_descriptor["semantic_hint"] = str(semantic_hint)
+			return xy_descriptor
+		# Fallback: generic xy from explicit bounds
 		var x_bounds = _coerce_dictionary(_read_property(child, "x", {}))
 		var y_bounds = _coerce_dictionary(_read_property(child, "y", {}))
 		var xy_descriptor = {
@@ -259,6 +319,16 @@ func _classify_data_child(child) -> String:
 		return "8way"
 	if child_name.find("xy") != -1 or child_name.find("plot") != -1:
 		return "xy_plot"
+	# Detect XYPlot instances by characteristic properties (panel_radius, value_float)
+	# or by directional child names (e.g. Geyser's "Direction" node is an XYPlot)
+	if _read_property(child, "panel_radius", null) != null:
+		return "xy_plot"
+	if child_name.find("direction") != -1 or child_name.find("dir") != -1:
+		return "xy_plot"
+	# Detect CountOption instances (VBoxContainer with min_value/max_value/HSlider)
+	# These produce {"count": int} from get_data()
+	if _read_property(child, "min_value", null) != null and _read_property(child, "max_value", null) != null:
+		return "count"
 	return "unknown"
 
 
