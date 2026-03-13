@@ -76,7 +76,7 @@ The live schema set is:
 - `observation`
 - `legal_actions`
 
-The v1 `decision_type` enum is intentionally narrow: `turn_action`.
+The `decision_type` enum is intentionally narrow in `v2`: `turn_action`.
 
 Recommended metadata fields are optional but versioned in-schema already:
 
@@ -104,12 +104,33 @@ Each `legal_actions` entry includes:
 - `action`
 - optional `label`
 - `payload_spec`
+- optional `prediction_spec`
 - optional `payload_schema`
 - `supports.di`
 - `supports.feint`
 - `supports.reverse`
 - `supports.prediction`
 - optional tactical metadata such as `damage`, `startup_frames`, `range`, `meter_cost`, and `description`
+
+`payload_spec` is now a structured object-schema contract, not a flat widget-tag map. Actions with payload parameters use the JSON-schema-like shape below:
+
+```json
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["target"],
+  "properties": {
+    "target": {
+      "type": "string",
+      "enum": ["enemy", "self"],
+      "ui_kind": "enum",
+      "semantic_hint": "throw_target"
+    }
+  }
+}
+```
+
+Field descriptors may include `type`, `enum`/`choices`, `minimum`, `maximum`, `default`, `required`, `properties`, `items`, `ui_kind`, and `semantic_hint`. This keeps slider, enum, checkbox, directional, and XY payloads expressible without leaking raw Godot widget classes into the wire format.
 
 ### Action Decision
 
@@ -121,7 +142,19 @@ Each `legal_actions` entry includes:
 - `data`
 - `extra`
 
-`extra.di` is a percentage-int vector bounded to `[-100, 100]` on both axes. `extra.feint` and `extra.reverse` are explicit booleans even when false. `extra.prediction` is reserved for structured prediction extras and is `null` unless the legal action explicitly supports it.
+`extra.di` is a percentage-int vector bounded to `[-100, 100]` on both axes. `extra.feint` and `extra.reverse` are explicit booleans even when false. `extra.prediction` is a structured object when supported, and `null` otherwise.
+
+The default prediction-extra contract is:
+
+```json
+{
+  "horizon": 1,
+  "opponent_action": "",
+  "confidence": "medium"
+}
+```
+
+`prediction_spec` on the corresponding legal action can narrow or restate that contract for a specific move, but unsupported prediction payloads are rejected before action application.
 
 Optional debug metadata is schema-recognized:
 
@@ -133,7 +166,7 @@ Optional debug metadata is schema-recognized:
 - `notes`
 - `fallback_reason`
 
-The v1 fallback-reason enum is:
+The fallback-reason enum is:
 
 - `timeout`
 - `disconnect`
@@ -176,7 +209,7 @@ The v1 fallback-reason enum is:
 - `character_selection`
 - optional `stage_id`
 
-The v1 enums here align with the unified spec:
+The `v2` enums here align with the unified spec:
 
 - timeout profiles: `strict_local`, `llm_tournament`
 - fallback modes: `safe_continue`, `heuristic_guard`, `last_valid_replayable`

@@ -27,6 +27,7 @@ from yomi_daemon.protocol import (
     CURRENT_PROTOCOL_VERSION,
     CURRENT_SCHEMA_VERSION,
     canonical_json,
+    default_prediction_spec,
 )
 
 SCHEMA_PATH = REPO_ROOT / "schemas" / f"decision-request.{CURRENT_SCHEMA_VERSION}.json"
@@ -199,20 +200,203 @@ def build_legal_actions(
         ):
             supports_feint = True
 
-        result.append(
-            {
-                "action": str(button["action_name"]),
-                "label": str(label),
-                "payload_spec": {},
-                "supports": {
-                    "di": True,
-                    "feint": supports_feint,
-                    "reverse": bool(button.get("reversible", False)),
-                    "prediction": False,
-                },
-            }
-        )
+        supports_prediction = _supports_prediction(button)
+        action_entry = {
+            "action": str(button["action_name"]),
+            "label": str(label),
+            "payload_spec": _build_payload_spec(button),
+            "supports": {
+                "di": True,
+                "feint": supports_feint,
+                "reverse": bool(button.get("reversible", False)),
+                "prediction": supports_prediction,
+            },
+        }
+        prediction_spec = _build_prediction_spec(button)
+        if prediction_spec is not None:
+            action_entry["prediction_spec"] = prediction_spec
+
+        result.append(action_entry)
     return result
+
+
+def _supports_prediction(button: dict[str, Any]) -> bool:
+    state = button.get("state")
+    if isinstance(button.get("supports_prediction"), bool):
+        return bool(button["supports_prediction"])
+    if isinstance(state, dict) and isinstance(state.get("supports_prediction"), bool):
+        return bool(state["supports_prediction"])
+    return button.get("prediction_spec") is not None or (
+        isinstance(state, dict) and state.get("prediction_spec") is not None
+    )
+
+
+def _build_prediction_spec(button: dict[str, Any]) -> dict[str, Any] | None:
+    state = button.get("state")
+    for candidate in (
+        button.get("prediction_spec"),
+        state.get("prediction_spec") if isinstance(state, dict) else None,
+    ):
+        if isinstance(candidate, dict):
+            return dict(candidate)
+    if _supports_prediction(button):
+        return default_prediction_spec()
+    return None
+
+
+def _build_payload_spec(button: dict[str, Any]) -> dict[str, Any]:
+    data_node = button.get("data_node")
+    if data_node is None:
+        return {}
+
+    children = _data_children(data_node)
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    for child in children:
+        field_name = str(child.get("name", "")).strip()
+        if not field_name:
+            continue
+        descriptor = _build_field_descriptor(child)
+        if descriptor is None:
+            continue
+        properties[field_name] = descriptor
+        if bool(child.get("required", True)):
+            required.append(field_name)
+
+    if not properties:
+        return {}
+
+    payload_spec: dict[str, Any] = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": properties,
+    }
+    if required:
+        payload_spec["required"] = required
+    return payload_spec
+
+
+def _data_children(data_node: Any) -> list[dict[str, Any]]:
+    if isinstance(data_node, dict):
+        children = data_node.get("children", [])
+        if isinstance(children, list):
+            return [child for child in children if isinstance(child, dict)]
+    if isinstance(data_node, list):
+        return [child for child in data_node if isinstance(child, dict)]
+    return []
+
+
+def _build_field_descriptor(child: dict[str, Any]) -> dict[str, Any] | None:
+    if isinstance(child.get("schema"), dict):
+        return dict(child["schema"])
+
+    kind = str(child.get("kind", child.get("type", ""))).lower()
+    semantic_hint = child.get("semantic_hint")
+
+    if kind == "slider":
+        descriptor: dict[str, Any] = {
+            "type": "integer",
+            "minimum": int(child.get("minimum", child.get("min", 0))),
+            "maximum": int(child.get("maximum", child.get("max", 100))),
+            "default": int(
+                child.get("default", child.get("minimum", child.get("min", 0)))
+            ),
+            "ui_kind": "slider",
+        }
+        if semantic_hint is not None:
+            descriptor["semantic_hint"] = str(semantic_hint)
+        return descriptor
+
+    if kind in {"option", "enum"}:
+        choices = child.get("choices", [])
+        descriptor = {
+            "type": "string",
+            "enum": [str(choice) for choice in choices],
+            "default": str(
+                child.get(
+                    "default",
+                    choices[0] if isinstance(choices, list) and choices else "",
+                )
+            ),
+            "ui_kind": "enum",
+        }
+        if semantic_hint is not None:
+            descriptor["semantic_hint"] = str(semantic_hint)
+        return descriptor
+
+    if kind in {"check", "checkbox"}:
+        descriptor = {
+            "type": "boolean",
+            "default": bool(child.get("default", False)),
+            "ui_kind": "checkbox",
+        }
+        if semantic_hint is not None:
+            descriptor["semantic_hint"] = str(semantic_hint)
+        return descriptor
+
+    if kind in {"8way", "direction", "direction8"}:
+        choices = child.get(
+            "choices",
+            [
+                "neutral",
+                "up",
+                "down",
+                "forward",
+                "back",
+                "up_forward",
+                "up_back",
+                "down_forward",
+                "down_back",
+            ],
+        )
+        descriptor = {
+            "type": "direction",
+            "enum": [str(choice) for choice in choices],
+            "default": str(child.get("default", choices[0] if choices else "neutral")),
+            "ui_kind": "direction8",
+        }
+        if semantic_hint is not None:
+            descriptor["semantic_hint"] = str(semantic_hint)
+        return descriptor
+
+    if kind in {"xy_plot", "xy", "vector2"}:
+        x_bounds = child.get("x", {})
+        y_bounds = child.get("y", {})
+        descriptor = {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["x", "y"],
+            "ui_kind": "xy",
+            "properties": {
+                "x": {
+                    "type": "number",
+                    "minimum": float(x_bounds.get("minimum", x_bounds.get("min", 0.0))),
+                    "maximum": float(x_bounds.get("maximum", x_bounds.get("max", 0.0))),
+                    "default": float(
+                        x_bounds.get(
+                            "default",
+                            x_bounds.get("minimum", x_bounds.get("min", 0.0)),
+                        )
+                    ),
+                },
+                "y": {
+                    "type": "number",
+                    "minimum": float(y_bounds.get("minimum", y_bounds.get("min", 0.0))),
+                    "maximum": float(y_bounds.get("maximum", y_bounds.get("max", 0.0))),
+                    "default": float(
+                        y_bounds.get(
+                            "default",
+                            y_bounds.get("minimum", y_bounds.get("min", 0.0)),
+                        )
+                    ),
+                },
+            },
+        }
+        if semantic_hint is not None:
+            descriptor["semantic_hint"] = str(semantic_hint)
+        return descriptor
+
+    return None
 
 
 def sha256_hash(data: Any) -> str:

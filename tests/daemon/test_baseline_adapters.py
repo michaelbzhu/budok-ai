@@ -67,6 +67,7 @@ def _action(
     action_id: str,
     *,
     payload_spec: JsonObject | None = None,
+    prediction_spec: JsonObject | None = None,
     damage: float | None = None,
     startup_frames: int | None = None,
     range: float | None = None,
@@ -74,6 +75,7 @@ def _action(
     di: bool = False,
     feint: bool = False,
     reverse: bool = False,
+    prediction: bool = False,
     label: str | None = None,
     description: str | None = None,
 ) -> LegalAction:
@@ -81,8 +83,9 @@ def _action(
         action=action_id,
         label=label,
         payload_spec=payload_spec or {},
+        prediction_spec=prediction_spec,
         supports=LegalActionSupports(
-            di=di, feint=feint, reverse=reverse, prediction=False
+            di=di, feint=feint, reverse=reverse, prediction=prediction
         ),
         damage=damage,
         startup_frames=startup_frames,
@@ -162,7 +165,20 @@ def test_random_baseline_is_deterministic_for_seeded_requests() -> None:
         (
             _action("slash", damage=40.0),
             _action("jump"),
-            _action("throw", payload_spec={"target": {"type": "enemy"}}),
+            _action(
+                "throw",
+                payload_spec={
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["target"],
+                    "properties": {
+                        "target": {
+                            "type": "enemy",
+                            "semantic_hint": "throw_target",
+                        }
+                    },
+                },
+            ),
         )
     )
 
@@ -233,7 +249,12 @@ def test_scripted_safe_prefers_low_commitment_resolved_actions() -> None:
             (
                 _action(
                     "super_slash",
-                    payload_spec={"target": {"type": "enemy"}},
+                    payload_spec={
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["target"],
+                        "properties": {"target": {"type": "enemy"}},
+                    },
                     meter_cost=2,
                     startup_frames=18,
                     damage=180.0,
@@ -255,8 +276,13 @@ def test_baselines_resolve_supported_payloads_and_keep_supported_di_in_bounds() 
             _action(
                 "throw",
                 payload_spec={
-                    "target": {"type": "enemy"},
-                    "strength": {"type": "integer", "minimum": 1},
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["target", "strength"],
+                    "properties": {
+                        "target": {"type": "enemy"},
+                        "strength": {"type": "integer", "minimum": 1},
+                    },
                 },
                 di=True,
             ),
@@ -272,4 +298,86 @@ def test_baselines_resolve_supported_payloads_and_keep_supported_di_in_bounds() 
         decision = _decide(policy_id, request)
         assert decision.data == {"target": "enemy", "strength": 1}
         assert decision.extra.di == DIVector(x=0, y=0)
+        validate_model(decision)
+
+
+def test_baselines_resolve_structured_slider_enum_checkbox_direction_and_xy_payloads() -> (
+    None
+):
+    request = _request(
+        (
+            _action(
+                "wizard_setup",
+                payload_spec={
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "charge_frames",
+                        "element",
+                        "hold_position",
+                        "direction",
+                        "target_point",
+                    ],
+                    "properties": {
+                        "charge_frames": {
+                            "type": "integer",
+                            "minimum": 5,
+                            "maximum": 30,
+                            "default": 12,
+                            "ui_kind": "slider",
+                        },
+                        "element": {
+                            "type": "string",
+                            "enum": ["wind", "fire", "lightning"],
+                            "default": "wind",
+                            "ui_kind": "enum",
+                        },
+                        "hold_position": {
+                            "type": "boolean",
+                            "default": False,
+                            "ui_kind": "checkbox",
+                        },
+                        "direction": {
+                            "type": "direction",
+                            "default": "forward",
+                            "ui_kind": "direction8",
+                        },
+                        "target_point": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "required": ["x", "y"],
+                            "ui_kind": "xy",
+                            "properties": {
+                                "x": {
+                                    "type": "number",
+                                    "minimum": -12.5,
+                                    "maximum": 12.5,
+                                },
+                                "y": {
+                                    "type": "number",
+                                    "minimum": -3.0,
+                                    "maximum": 7.0,
+                                },
+                            },
+                        },
+                    },
+                },
+            ),
+        )
+    )
+
+    for policy_id in (
+        "baseline/random",
+        "baseline/block_always",
+        "baseline/greedy_damage",
+        "baseline/scripted_safe",
+    ):
+        decision = _decide(policy_id, request)
+        assert decision.data == {
+            "charge_frames": 12,
+            "element": "wind",
+            "hold_position": False,
+            "direction": "forward",
+            "target_point": {"x": -12.5, "y": -3.0},
+        }
         validate_model(decision)

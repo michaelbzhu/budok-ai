@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from yomi_daemon.protocol import DecisionRequest, JsonObject
+from yomi_daemon.protocol import DecisionRequest, JsonObject, default_prediction_spec
 from yomi_daemon.validation import REPO_ROOT
 
 
@@ -70,6 +70,8 @@ def render_prompt(
         "Choose `action` from the legal actions listed below. Only include `data` when the chosen "
         "action requires payload fields. Only include `extra` fields that the chosen action "
         "supports; otherwise omit them and the daemon will apply safe defaults.\n"
+        "When a legal action includes `payload_spec` or `prediction_spec`, match those structured "
+        "contracts exactly, including required fields and numeric bounds.\n"
         "If multiple actions look equivalent, prefer the lower-commitment option.\n"
         f"Target schema:\n```json\n{_json_dump(decision_output_json_schema())}\n```",
         f"## Turn Context\n```json\n{_json_dump(_turn_context(request, policy_id=policy_id))}\n```",
@@ -112,15 +114,17 @@ def decision_output_json_schema() -> JsonObject:
                         "additionalProperties": False,
                         "required": ["x", "y"],
                         "properties": {
-                            "x": {"type": "integer", "minimum": -1, "maximum": 1},
-                            "y": {"type": "integer", "minimum": -1, "maximum": 1},
+                            "x": {"type": "integer", "minimum": -100, "maximum": 100},
+                            "y": {"type": "integer", "minimum": -100, "maximum": 100},
                         },
                     },
                     "feint": {"type": "boolean"},
                     "reverse": {"type": "boolean"},
                     "prediction": {
-                        "type": ["object", "null"],
-                        "additionalProperties": True,
+                        "anyOf": [
+                            default_prediction_spec(),
+                            {"type": "null"},
+                        ]
                     },
                 },
             },
@@ -182,6 +186,7 @@ def _legal_actions_payload(request: DecisionRequest) -> list[JsonObject]:
             "range": action.range,
             "meter_cost": action.meter_cost,
             "payload_spec": action.payload_spec,
+            "prediction_spec": action.prediction_spec,
             "supports": action.supports.to_dict(),
         }
         for action in request.legal_actions

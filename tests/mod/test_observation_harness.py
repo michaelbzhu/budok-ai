@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -40,6 +41,11 @@ except ImportError:
 BASIC_TURN = load_fixture("basic_turn.json")
 EMPTY_OBJECTS = load_fixture("empty_objects.json")
 COWBOY_CHARACTER_DATA = load_fixture("cowboy_character_data.json")
+COWBOY_PARAMETERIZED = load_fixture("cowboy_parameterized.json")
+ROBOT_PARAMETERIZED = load_fixture("robot_parameterized.json")
+NINJA_PARAMETERIZED = load_fixture("ninja_parameterized.json")
+MUTANT_PARAMETERIZED = load_fixture("mutant_parameterized.json")
+WIZARD_PARAMETERIZED = load_fixture("wizard_parameterized.json")
 
 
 # --- Observation normalization ---
@@ -239,6 +245,68 @@ class TestLegalActions:
     def test_empty_player_buttons(self) -> None:
         actions = build_legal_actions(BASIC_TURN, BASIC_TURN["p2"], "p2")
         assert actions == []
+
+    @pytest.mark.parametrize(
+        ("fixture", "action_name", "expected_fields"),
+        [
+            (
+                COWBOY_PARAMETERIZED,
+                "Gun Toss",
+                {"distance", "target"},
+            ),
+            (
+                ROBOT_PARAMETERIZED,
+                "Drive Impact",
+                {"armor", "direction"},
+            ),
+            (
+                NINJA_PARAMETERIZED,
+                "Sticky Bomb",
+                {"target_point"},
+            ),
+            (
+                MUTANT_PARAMETERIZED,
+                "Install Choice",
+                {"stance", "hold_position"},
+            ),
+            (
+                WIZARD_PARAMETERIZED,
+                "Conjure Storm",
+                {"charge_frames", "element", "direction"},
+            ),
+        ],
+    )
+    def test_parameterized_character_actions_emit_structured_payload_specs(
+        self,
+        fixture: dict[str, object],
+        action_name: str,
+        expected_fields: set[str],
+    ) -> None:
+        actions = build_legal_actions(
+            fixture,
+            cast(dict[str, object], fixture["p1"]),
+            "p1",
+        )
+        action = next(action for action in actions if action["action"] == action_name)
+
+        assert action["payload_spec"]["type"] == "object"
+        assert action["payload_spec"]["additionalProperties"] is False
+        assert set(action["payload_spec"]["properties"]) == expected_fields
+        assert set(action["payload_spec"]["required"]) == expected_fields
+
+    def test_prediction_capable_action_emits_prediction_spec(self) -> None:
+        actions = build_legal_actions(
+            COWBOY_PARAMETERIZED, COWBOY_PARAMETERIZED["p1"], "p1"
+        )
+        action = next(action for action in actions if action["action"] == "Gun Toss")
+
+        assert action["supports"]["prediction"] is True
+        assert action["prediction_spec"]["required"] == ["horizon"]
+        assert action["prediction_spec"]["properties"]["confidence"]["enum"] == [
+            "low",
+            "medium",
+            "high",
+        ]
 
 
 # --- Deterministic hashing ---

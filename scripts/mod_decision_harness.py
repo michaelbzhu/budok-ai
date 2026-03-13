@@ -26,7 +26,7 @@ DAEMON_SRC = REPO_ROOT / "daemon" / "src"
 if str(DAEMON_SRC) not in sys.path:
     sys.path.insert(0, str(DAEMON_SRC))
 
-from yomi_daemon.protocol import CURRENT_PROTOCOL_VERSION
+from yomi_daemon.protocol import CURRENT_PROTOCOL_VERSION, default_prediction_spec
 
 DI_MIN = -100
 DI_MAX = 100
@@ -155,28 +155,46 @@ def _validate_extras(extra: dict[str, Any], legal_action: dict[str, Any]) -> str
 
     if bool(extra.get("reverse", False)) and not bool(supports.get("reverse", False)):
         return "illegal_output"
-    if extra.get("prediction") is not None and not bool(
-        supports.get("prediction", False)
-    ):
+    prediction = extra.get("prediction")
+    if prediction is not None and not bool(supports.get("prediction", False)):
         return "illegal_output"
+    if prediction is not None:
+        if not isinstance(prediction, dict):
+            return "malformed_output"
+        prediction_spec = legal_action.get("prediction_spec")
+        if not isinstance(prediction_spec, dict):
+            prediction_spec = default_prediction_spec()
+        error = _validate_payload_value(
+            prediction,
+            prediction_spec,
+            context="extra.prediction",
+            field_map_mode=False,
+        )
+        if error:
+            return error
 
     return ""
 
 
 def _validate_payload_data(data: Any, legal_action: dict[str, Any]) -> str:
-    if data is None:
-        return ""
-
     payload_spec = legal_action.get("payload_spec", {})
     if not isinstance(payload_spec, dict) or not payload_spec:
         if isinstance(data, dict) and data:
             return "illegal_output"
         return ""
 
+    if data is None:
+        return "illegal_output"
+
     if not isinstance(data, dict):
         return "illegal_output"
 
-    return ""
+    return _validate_payload_value(
+        data,
+        payload_spec,
+        context="data",
+        field_map_mode=_looks_like_field_map(payload_spec),
+    )
 
 
 # --- Fallback Selection ---
@@ -282,7 +300,7 @@ def _build_fallback_from_action(
         "match_id": request.get("match_id", ""),
         "turn_id": request.get("turn_id", 0),
         "action": str(action.get("action", "")),
-        "data": None,
+        "data": _resolve_payload_object(action.get("payload_spec", {})),
         "extra": {
             "di": di_value,
             "feint": False,
@@ -359,6 +377,241 @@ def _select_safe_action(legal_actions: list[dict[str, Any]]) -> dict[str, Any]:
         enumerate(legal_actions),
         key=lambda pair: (_safe_score(pair[1]), -pair[0]),
     )[1]
+
+
+_SCHEMA_DESCRIPTOR_KEYS = frozenset(
+    {
+        "additionalProperties",
+        "choices",
+        "const",
+        "default",
+        "enum",
+        "items",
+        "maximum",
+        "maxItems",
+        "max_items",
+        "maxLength",
+        "minimum",
+        "minItems",
+        "min_items",
+        "minLength",
+        "properties",
+        "required",
+        "semantic_hint",
+        "type",
+        "ui_kind",
+    }
+)
+
+
+def _looks_like_field_map(spec: dict[str, Any]) -> bool:
+    return not bool(_SCHEMA_DESCRIPTOR_KEYS & set(spec))
+
+
+def _validate_payload_value(
+    value: Any,
+    spec: dict[str, Any],
+    *,
+    context: str,
+    field_map_mode: bool = False,
+) -> str:
+    if field_map_mode:
+        if not isinstance(value, dict):
+            return "illegal_output"
+        for key in value:
+            if key not in spec:
+                return "illegal_output"
+        for key, item in value.items():
+            descriptor = spec.get(key)
+            if isinstance(descriptor, dict):
+                error = _validate_payload_value(
+                    item,
+                    descriptor,
+                    context=f"{context}.{key}",
+                    field_map_mode=_looks_like_field_map(descriptor),
+                )
+                if error:
+                    return error
+        for key, descriptor in spec.items():
+            if (
+                isinstance(descriptor, dict)
+                and bool(descriptor.get("required", False))
+                and key not in value
+            ):
+                return "illegal_output"
+        return ""
+
+    type_error = _validate_descriptor_type(value, spec)
+    if type_error:
+        return type_error
+
+    if "const" in spec and value != spec["const"]:
+        return "illegal_output"
+
+    enum_values = spec.get("enum", spec.get("choices"))
+    if isinstance(enum_values, list) and value not in enum_values:
+        return "illegal_output"
+
+    if isinstance(value, dict):
+        properties = spec.get("properties")
+        if isinstance(properties, dict):
+            additional_properties = spec.get("additionalProperties", True)
+            for key, item in value.items():
+                if key in properties:
+                    descriptor = properties[key]
+                    if isinstance(descriptor, dict):
+                        error = _validate_payload_value(
+                            item,
+                            descriptor,
+                            context=f"{context}.{key}",
+                            field_map_mode=_looks_like_field_map(descriptor),
+                        )
+                        if error:
+                            return error
+                    continue
+                if additional_properties is False:
+                    return "illegal_output"
+
+            required = spec.get("required")
+            if isinstance(required, list):
+                for required_key in required:
+                    if isinstance(required_key, str) and required_key not in value:
+                        return "illegal_output"
+
+    if isinstance(value, list):
+        items_spec = spec.get("items")
+        if isinstance(items_spec, dict):
+            for item in value:
+                error = _validate_payload_value(
+                    item,
+                    items_spec,
+                    context=f"{context}[]",
+                    field_map_mode=_looks_like_field_map(items_spec),
+                )
+                if error:
+                    return error
+        min_items = _optional_int(spec.get("minItems", spec.get("min_items")))
+        if min_items is not None and len(value) < min_items:
+            return "illegal_output"
+        max_items = _optional_int(spec.get("maxItems", spec.get("max_items")))
+        if max_items is not None and len(value) > max_items:
+            return "illegal_output"
+
+    if _is_number(value):
+        minimum = _optional_number(spec.get("minimum"))
+        if minimum is not None and float(value) < minimum:
+            return "illegal_output"
+        maximum = _optional_number(spec.get("maximum"))
+        if maximum is not None and float(value) > maximum:
+            return "illegal_output"
+
+    if isinstance(value, str):
+        min_length = _optional_int(spec.get("minLength"))
+        if min_length is not None and len(value) < min_length:
+            return "illegal_output"
+        max_length = _optional_int(spec.get("maxLength"))
+        if max_length is not None and len(value) > max_length:
+            return "illegal_output"
+
+    return ""
+
+
+def _validate_descriptor_type(value: Any, spec: dict[str, Any]) -> str:
+    normalized_type = str(spec.get("type", "")).lower()
+    if normalized_type == "":
+        return ""
+    if normalized_type == "string":
+        return "" if isinstance(value, str) else "illegal_output"
+    if normalized_type == "integer":
+        return (
+            ""
+            if isinstance(value, int) and not isinstance(value, bool)
+            else "illegal_output"
+        )
+    if normalized_type == "number":
+        return "" if _is_number(value) else "illegal_output"
+    if normalized_type == "boolean":
+        return "" if isinstance(value, bool) else "illegal_output"
+    if normalized_type == "object":
+        return "" if isinstance(value, dict) else "illegal_output"
+    if normalized_type == "array":
+        return "" if isinstance(value, list) else "illegal_output"
+    return "" if isinstance(value, str) else "illegal_output"
+
+
+def _resolve_payload_object(spec: Any) -> dict[str, Any] | None:
+    if not isinstance(spec, dict) or not spec:
+        return None
+    resolved = _resolve_schema_value(spec)
+    return resolved if isinstance(resolved, dict) else None
+
+
+def _resolve_schema_value(spec: Any) -> Any:
+    if spec is None or isinstance(spec, (bool, int, float, str)):
+        return spec
+    if not isinstance(spec, dict):
+        return None
+
+    if "const" in spec:
+        return spec["const"]
+    if "default" in spec:
+        return spec["default"]
+
+    enum_values = spec.get("enum", spec.get("choices"))
+    if isinstance(enum_values, list) and enum_values:
+        return enum_values[0]
+
+    normalized_type = str(spec.get("type", "")).lower()
+    if normalized_type == "object" or "properties" in spec:
+        properties = spec.get("properties", {})
+        if not isinstance(properties, dict):
+            return {}
+        return {key: _resolve_schema_value(value) for key, value in properties.items()}
+    if normalized_type == "array":
+        items_spec = spec.get("items")
+        min_items = _optional_int(spec.get("minItems", spec.get("min_items", 0))) or 0
+        if items_spec is None:
+            return []
+        return [_resolve_schema_value(items_spec) for _ in range(max(0, min_items))]
+    if normalized_type == "integer":
+        return _optional_int(spec.get("minimum", spec.get("min", 0))) or 0
+    if normalized_type == "number":
+        return _optional_number(spec.get("minimum", spec.get("min", 0.0))) or 0.0
+    if normalized_type == "boolean":
+        return False
+    if normalized_type in {"enemy", "opponent", "target_enemy"}:
+        return "enemy"
+    if normalized_type in {"self", "ally", "target_self"}:
+        return "self"
+    if normalized_type in {"direction", "facing"}:
+        choices = spec.get("enum", ["forward"])
+        return choices[0] if isinstance(choices, list) and choices else "forward"
+    if normalized_type in {"vector2", "xy"}:
+        return {"x": 0, "y": 0}
+    if normalized_type == "string":
+        if "example" in spec:
+            return str(spec["example"])
+        if "placeholder" in spec:
+            return str(spec["placeholder"])
+        min_length = _optional_int(spec.get("minLength")) or 0
+        return "x" * max(0, min_length)
+    return None
+
+
+def _optional_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _optional_number(value: Any) -> float | None:
+    if not _is_number(value):
+        return None
+    return float(value)
+
+
+def _is_number(value: Any) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float))
 
 
 # --- Action Application ---

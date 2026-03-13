@@ -25,6 +25,7 @@ from yomi_daemon.protocol import (
     FighterObservation,
     Hello,
     HelloAck,
+    JsonObject,
     LegalAction,
     LegalActionSupports,
     LoggingConfig,
@@ -40,8 +41,10 @@ from yomi_daemon.protocol import (
     canonical_sha256,
 )
 from yomi_daemon.validation import (
+    DecisionValidationError,
     ProtocolValidationError,
     parse_envelope,
+    validate_action_decision_for_request,
     validate_envelope,
     validate_model,
     validate_payload,
@@ -139,10 +142,45 @@ def build_legal_action() -> LegalAction:
     return LegalAction(
         action="slash",
         label="Slash",
-        payload_spec={"target": {"type": "enemy"}},
+        payload_spec={
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["target", "strength"],
+            "properties": {
+                "target": {
+                    "type": "enemy",
+                    "semantic_hint": "primary_target",
+                },
+                "strength": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3,
+                    "default": 1,
+                    "ui_kind": "slider",
+                },
+            },
+        },
+        prediction_spec={
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["horizon"],
+            "properties": {
+                "horizon": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 2,
+                    "default": 1,
+                },
+                "confidence": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"],
+                    "default": "medium",
+                },
+            },
+        },
         payload_schema={"kind": "object", "fields": {"target": {"type": "string"}}},
         supports=LegalActionSupports(
-            di=True, feint=False, reverse=True, prediction=False
+            di=True, feint=False, reverse=True, prediction=True
         ),
         damage=120.0,
         startup_frames=5,
@@ -177,12 +215,12 @@ def build_action_decision() -> ActionDecision:
         match_id="match-001",
         turn_id=7,
         action="slash",
-        data={"target": "enemy"},
+        data={"target": "enemy", "strength": 1},
         extra=DecisionExtras(
             di=DIVector(x=25, y=-10),
             feint=False,
             reverse=True,
-            prediction=None,
+            prediction={"horizon": 2, "confidence": "medium"},
         ),
         policy_id="baseline/random",
         latency_ms=123,
@@ -366,6 +404,55 @@ def test_action_decision_rejects_malformed_di_vectors(
 
     with pytest.raises(ProtocolValidationError, match="di"):
         validate_payload(MessageType.ACTION_DECISION, payload)
+
+
+@pytest.mark.parametrize(
+    ("data", "match_text"),
+    [
+        ({"target": "enemy", "unknown": True}, "unknown"),
+        ({"target": "enemy"}, "strength"),
+        ({"target": "enemy", "strength": 0}, ">= 1"),
+    ],
+)
+def test_request_relative_validation_rejects_invalid_payload_shapes(
+    data: JsonObject,
+    match_text: str,
+) -> None:
+    request = build_decision_request()
+    decision = ActionDecision(
+        match_id=request.match_id,
+        turn_id=request.turn_id,
+        action="slash",
+        data=data,
+        extra=DecisionExtras(
+            di=None,
+            feint=False,
+            reverse=False,
+            prediction={"horizon": 2, "confidence": "medium"},
+        ),
+    )
+
+    with pytest.raises(DecisionValidationError, match=match_text):
+        validate_action_decision_for_request(request, decision)
+
+
+def test_request_relative_validation_rejects_invalid_prediction_payload() -> None:
+    request = build_decision_request()
+    decision = ActionDecision(
+        match_id=request.match_id,
+        turn_id=request.turn_id,
+        action="slash",
+        data={"target": "enemy", "strength": 1},
+        extra=DecisionExtras(
+            di=None,
+            feint=False,
+            reverse=False,
+            prediction={"horizon": 3, "confidence": "medium"},
+        ),
+    )
+
+    with pytest.raises(DecisionValidationError, match="prediction"):
+        validate_action_decision_for_request(request, decision)
 
 
 def test_parse_envelope_returns_typed_payload() -> None:

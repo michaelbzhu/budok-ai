@@ -16,7 +16,31 @@ def test_render_prompt_is_deterministic_for_same_request() -> None:
             build_action("guard", description="Block safely."),
             build_action(
                 "slash",
-                payload_spec={"target": {"type": "string"}},
+                payload_spec={
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["target"],
+                    "properties": {
+                        "target": {
+                            "type": "string",
+                            "enum": ["enemy", "self"],
+                            "semantic_hint": "throw_target",
+                        }
+                    },
+                },
+                prediction=True,
+                prediction_spec={
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["horizon"],
+                    "properties": {
+                        "horizon": {"type": "integer", "minimum": 1, "maximum": 3},
+                        "confidence": {
+                            "type": "string",
+                            "enum": ["low", "medium", "high"],
+                        },
+                    },
+                },
                 damage=80.0,
                 startup_frames=5,
             ),
@@ -39,6 +63,8 @@ def test_render_prompt_is_deterministic_for_same_request() -> None:
     assert first.variant is PromptTemplateVariant.STRATEGIC
     assert "## Observation" in first.prompt_text
     assert '"policy_id": "provider/openai-main"' in first.prompt_text
+    assert '"minimum": -100' in first.prompt_text
+    assert '"prediction_spec"' in first.prompt_text
 
 
 def test_render_prompt_prefers_request_prompt_version_over_policy_default() -> None:

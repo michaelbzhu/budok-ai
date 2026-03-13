@@ -62,9 +62,11 @@ def build_action(
     action_id: str,
     *,
     payload_spec: JsonObject | None = None,
+    prediction_spec: JsonObject | None = None,
     di: bool = False,
     feint: bool = False,
     reverse: bool = False,
+    prediction: bool = False,
     damage: float | None = None,
     startup_frames: int | None = None,
     meter_cost: int | None = None,
@@ -75,8 +77,9 @@ def build_action(
         action=action_id,
         label=label,
         payload_spec=payload_spec or {},
+        prediction_spec=prediction_spec,
         supports=LegalActionSupports(
-            di=di, feint=feint, reverse=reverse, prediction=False
+            di=di, feint=feint, reverse=reverse, prediction=prediction
         ),
         damage=damage,
         startup_frames=startup_frames,
@@ -115,6 +118,7 @@ def build_decision(
     di: tuple[int, int] | None = None,
     feint: bool = False,
     reverse: bool = False,
+    prediction: JsonObject | None = None,
 ) -> ActionDecision:
     return ActionDecision(
         match_id=request.match_id,
@@ -125,7 +129,7 @@ def build_decision(
             di=DIVector(x=di[0], y=di[1]) if di is not None else None,
             feint=feint,
             reverse=reverse,
-            prediction=None,
+            prediction=prediction,
         ),
         policy_id="provider/mock",
     )

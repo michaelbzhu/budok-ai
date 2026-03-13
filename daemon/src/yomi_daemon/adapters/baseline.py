@@ -277,7 +277,21 @@ def _resolve_payload_object(spec: JsonObject, *, rng: Random) -> JsonObject | ob
 
 def _looks_like_schema_descriptor(spec: JsonObject) -> bool:
     return bool(
-        {"type", "enum", "const", "default", "properties", "items", "minimum", "maximum"}
+        {
+            "type",
+            "enum",
+            "const",
+            "default",
+            "properties",
+            "items",
+            "minimum",
+            "maximum",
+            "minLength",
+            "maxLength",
+            "required",
+            "ui_kind",
+            "semantic_hint",
+        }
         & set(spec)
     )
 
@@ -318,7 +332,12 @@ def _resolve_schema_value(spec: object, *, rng: Random) -> JsonValue | object:
         if normalized_type == "boolean":
             return False
         if normalized_type == "string":
-            return str(mapping.get("example", mapping.get("placeholder", "")))
+            if "example" in mapping:
+                return str(mapping["example"])
+            if "placeholder" in mapping:
+                return str(mapping["placeholder"])
+            min_length = int(_coerce_numeric_bound(mapping.get("minLength", 0), as_int=True))
+            return "x" * max(0, min_length)
         if normalized_type in {"enemy", "opponent", "target_enemy"}:
             return "enemy"
         if normalized_type in {"self", "ally", "target_self"}:

@@ -51,8 +51,30 @@
           "type": "boolean"
         },
         "prediction": {
-          "type": ["object", "null"],
-          "additionalProperties": true
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["horizon"],
+              "properties": {
+                "horizon": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 3
+                },
+                "opponent_action": {
+                  "type": "string"
+                },
+                "confidence": {
+                  "type": "string",
+                  "enum": ["low", "medium", "high"]
+                }
+              }
+            }
+          ]
         }
       }
     },

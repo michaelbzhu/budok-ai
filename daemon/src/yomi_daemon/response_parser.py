@@ -181,6 +181,7 @@ def build_correction_prompt(request: DecisionRequest, error: ResponseParsingErro
         f'Use "match_id": "{request.match_id}" and "turn_id": {request.turn_id}.\n'
         f'Choose "action" from: {legal_actions}.\n'
         'Always include "data" (use null when unsure) and "extra".\n'
+        "Match any structured payload_spec or prediction_spec exactly, including required keys and bounds.\n"
         'Use "extra": {"di": null, "feint": false, "reverse": false, "prediction": null} '
         "unless the chosen action explicitly supports those extras.\n"
     )

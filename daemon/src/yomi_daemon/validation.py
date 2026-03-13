@@ -23,6 +23,7 @@ from yomi_daemon.protocol import (
     MessageType,
     ProtocolModel,
     ProtocolVersion,
+    default_prediction_spec,
 )
 
 
@@ -193,12 +194,16 @@ _SCHEMA_DESCRIPTOR_KEYS = frozenset(
         "maximum",
         "maxItems",
         "max_items",
+        "maxLength",
         "minimum",
         "minItems",
         "min_items",
+        "minLength",
         "properties",
         "required",
+        "semantic_hint",
         "type",
+        "ui_kind",
     }
 )
 _JSON_TYPE_NAMES = frozenset({"array", "boolean", "integer", "number", "object", "string"})
@@ -285,12 +290,16 @@ def _validate_decision_extras(legal_action: LegalAction, decision: ActionDecisio
             fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
             location=("extra", "prediction"),
         )
+    if decision.extra.prediction is not None:
+        _validate_payload_value(
+            decision.extra.prediction,
+            legal_action.prediction_spec or default_prediction_spec(),
+            context="extra.prediction",
+            field_map_mode=False,
+        )
 
 
 def _validate_decision_payload(legal_action: LegalAction, decision: ActionDecision) -> None:
-    if decision.data is None:
-        return
-
     if not legal_action.payload_spec:
         if decision.data:
             raise DecisionValidationError(
@@ -299,6 +308,13 @@ def _validate_decision_payload(legal_action: LegalAction, decision: ActionDecisi
                 location=("data",),
             )
         return
+
+    if decision.data is None:
+        raise DecisionValidationError(
+            f"action {decision.action!r} requires structured payload data",
+            fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+            location=("data",),
+        )
 
     _validate_payload_value(
         decision.data,
@@ -342,6 +358,16 @@ def _validate_payload_value(
                     cast(Mapping[str, object], descriptor),
                     context=f"{context}.{key}",
                     field_map_mode=_looks_like_field_map(cast(Mapping[str, object], descriptor)),
+                )
+        for key, descriptor in spec.items():
+            if not isinstance(descriptor, Mapping):
+                continue
+            descriptor_mapping = cast(Mapping[str, object], descriptor)
+            if bool(descriptor_mapping.get("required")) and key not in mapping_value:
+                raise DecisionValidationError(
+                    f"{context}.{key} is required by the legal action payload spec",
+                    fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+                    location=_location_tuple(f"{context}.{key}"),
                 )
         return
 
@@ -439,6 +465,22 @@ def _validate_payload_value(
         if maximum is not None and cast(float, value) > maximum:
             raise DecisionValidationError(
                 f"{context} must be <= {maximum}",
+                fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+                location=_location_tuple(context),
+            )
+
+    if isinstance(value, str):
+        min_length = _optional_integer(spec.get("minLength"))
+        if min_length is not None and len(value) < min_length:
+            raise DecisionValidationError(
+                f"{context} must have length >= {min_length}",
+                fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+                location=_location_tuple(context),
+            )
+        max_length = _optional_integer(spec.get("maxLength"))
+        if max_length is not None and len(value) > max_length:
+            raise DecisionValidationError(
+                f"{context} must have length <= {max_length}",
                 fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
                 location=_location_tuple(context),
             )

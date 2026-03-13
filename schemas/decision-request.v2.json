@@ -181,8 +181,18 @@
             "minLength": 1
           },
           "payload_spec": {
-            "type": "object",
-            "additionalProperties": true
+            "anyOf": [
+              {
+                "type": "object",
+                "maxProperties": 0
+              },
+              {
+                "$ref": "#/$defs/parameter_descriptor"
+              }
+            ]
+          },
+          "prediction_spec": {
+            "$ref": "#/$defs/parameter_descriptor"
           },
           "payload_schema": {
             "type": "object",
@@ -266,6 +276,92 @@
           "type": "number"
         }
       }
+    },
+    "parameter_descriptor": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "array",
+            "boolean",
+            "direction",
+            "enemy",
+            "integer",
+            "number",
+            "object",
+            "self",
+            "string",
+            "vector2"
+          ]
+        },
+        "additionalProperties": {
+          "type": "boolean"
+        },
+        "choices": {
+          "type": "array"
+        },
+        "const": true,
+        "default": true,
+        "description": {
+          "type": "string"
+        },
+        "enum": {
+          "type": "array"
+        },
+        "example": true,
+        "items": {
+          "$ref": "#/$defs/parameter_descriptor"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "maxItems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "minItems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "properties": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/parameter_descriptor"
+          }
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "semantic_hint": {
+          "type": "string"
+        },
+        "ui_kind": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
     }
   }
 }

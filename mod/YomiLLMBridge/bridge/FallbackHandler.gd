@@ -57,7 +57,10 @@ func _build_fallback_from_prior(
 		"turn_id": request.get("turn_id", 0),
 		"action": prior_decision.get("action", ""),
 		"data": prior_decision.get("data"),
-		"extra": prior_decision.get("extra", {"di": null, "feint": false, "reverse": false}),
+		"extra": prior_decision.get(
+			"extra",
+			{"di": null, "feint": false, "reverse": false, "prediction": null}
+		),
 		"policy_id": "fallback/last_valid_replayable",
 		"notes": "Replayed the last request-compatible decision after upstream failure.",
 		"fallback_reason": fallback_reason,
@@ -79,11 +82,12 @@ func _build_fallback_from_action(
 		"match_id": request.get("match_id", ""),
 		"turn_id": request.get("turn_id", 0),
 		"action": str(action.get("action", "")),
-		"data": null,
+		"data": _resolve_payload_object(action.get("payload_spec", {})),
 		"extra": {
 			"di": di_value,
 			"feint": false,
 			"reverse": false,
+			"prediction": null,
 		},
 		"policy_id": "fallback/" + strategy,
 		"notes": "Selected fallback action after upstream failure.",
@@ -97,7 +101,7 @@ func _empty_fallback(request: Dictionary, fallback_reason: String) -> Dictionary
 		"turn_id": request.get("turn_id", 0),
 		"action": "",
 		"data": null,
-		"extra": {"di": null, "feint": false, "reverse": false},
+		"extra": {"di": null, "feint": false, "reverse": false, "prediction": null},
 		"policy_id": "fallback/safe_continue",
 		"notes": "No legal actions available for fallback.",
 		"fallback_reason": fallback_reason,
@@ -217,3 +221,70 @@ func _safe_score(action: Dictionary) -> float:
 		- startup_penalty
 		- meter_penalty
 	)
+
+
+func _resolve_payload_object(spec):
+	if not (spec is Dictionary) or spec.empty():
+		return null
+	return _resolve_schema_value(spec)
+
+
+func _resolve_schema_value(spec):
+	if spec == null or spec is bool or spec is int or spec is float or spec is String:
+		return spec
+	if not (spec is Dictionary):
+		return null
+
+	if spec.has("const"):
+		return spec["const"]
+	if spec.has("default"):
+		return spec["default"]
+
+	var enum_values = spec.get("enum", spec.get("choices", null))
+	if enum_values is Array and not enum_values.empty():
+		return enum_values[0]
+
+	var normalized_type = str(spec.get("type", "")).to_lower()
+	if normalized_type == "object" or spec.has("properties"):
+		var properties = spec.get("properties", {})
+		if not (properties is Dictionary):
+			return {}
+		var result = {}
+		for key in properties.keys():
+			result[key] = _resolve_schema_value(properties[key])
+		return result
+	if normalized_type == "array":
+		var items_spec = spec.get("items", null)
+		var count = int(spec.get("minItems", spec.get("min_items", 0)))
+		if items_spec == null:
+			return []
+		var result = []
+		for _i in range(max(0, count)):
+			result.append(_resolve_schema_value(items_spec))
+		return result
+	if normalized_type == "integer":
+		return int(spec.get("minimum", spec.get("min", 0)))
+	if normalized_type == "number":
+		return float(spec.get("minimum", spec.get("min", 0.0)))
+	if normalized_type == "boolean":
+		return false
+	if normalized_type == "enemy" or normalized_type == "opponent" or normalized_type == "target_enemy":
+		return "enemy"
+	if normalized_type == "self" or normalized_type == "ally" or normalized_type == "target_self":
+		return "self"
+	if normalized_type == "direction" or normalized_type == "facing":
+		var direction_choices = spec.get("enum", ["forward"])
+		if direction_choices is Array and not direction_choices.empty():
+			return direction_choices[0]
+		return "forward"
+	if normalized_type == "string":
+		if spec.has("example"):
+			return str(spec["example"])
+		if spec.has("placeholder"):
+			return str(spec["placeholder"])
+		var min_length = int(spec.get("minLength", 0))
+		var text = ""
+		for _i in range(max(0, min_length)):
+			text += "x"
+		return text
+	return null

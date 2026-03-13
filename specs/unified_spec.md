@@ -341,10 +341,12 @@ The unified action model is structured rather than move-name-only.
 Each legal action should include:
 - `action`: canonical action ID
 - `label`: human-readable name if useful
-- `payload_spec`: structured description of action-specific payload fields
+- `payload_spec`: structured object-schema description of action-specific payload fields, including requiredness, numeric bounds, enum choices, defaults, and semantic hints when known
 - `supports.di`: boolean
 - `supports.feint`: boolean
 - `supports.reverse`: boolean
+- `supports.prediction`: boolean
+- optional `prediction_spec`: structured contract for prediction extras when the action supports them
 - optional tactical metadata such as `damage`, `startup_frames`, `range`, `meter_cost`, `description`
 
 This allows the system to support both simple actions and actions with move-specific parameters.
@@ -363,6 +365,7 @@ Where:
 - `extra.di` is a bounded vector when supported
 - `extra.feint` is boolean
 - `extra.reverse` is boolean
+- `extra.prediction` is either `null` or a structured prediction object validated against the legal action contract
 
 Optional debug fields:
 - `policy_id`

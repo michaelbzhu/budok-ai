@@ -29,7 +29,9 @@ def _make_legal_action(
     di: bool = True,
     feint: bool = False,
     reverse: bool = False,
+    prediction: bool = False,
     payload_spec: dict | None = None,
+    prediction_spec: dict | None = None,
     startup_frames: int | None = None,
     meter_cost: int | None = None,
     description: str | None = None,
@@ -38,8 +40,15 @@ def _make_legal_action(
         "action": action,
         "label": label or action,
         "payload_spec": payload_spec or {},
-        "supports": {"di": di, "feint": feint, "reverse": reverse, "prediction": False},
+        "supports": {
+            "di": di,
+            "feint": feint,
+            "reverse": reverse,
+            "prediction": prediction,
+        },
     }
+    if prediction_spec is not None:
+        result["prediction_spec"] = prediction_spec
     if startup_frames is not None:
         result["startup_frames"] = startup_frames
     if meter_cost is not None:
@@ -101,6 +110,27 @@ def _make_decision(
             "payload": payload,
         }
     return payload
+
+
+STRUCTURED_SPECIAL_PAYLOAD = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["target", "strength"],
+    "properties": {
+        "target": {"type": "string", "enum": ["enemy", "self"]},
+        "strength": {"type": "integer", "minimum": 1, "maximum": 3, "default": 1},
+    },
+}
+
+PREDICTION_SPEC = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["horizon"],
+    "properties": {
+        "horizon": {"type": "integer", "minimum": 1, "maximum": 3},
+        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+    },
+}
 
 
 # ==================== Decision Validation Tests ====================
@@ -221,12 +251,52 @@ class TestDecisionValidation:
         assert validate_decision(decision, request) == "malformed_output"
 
     def test_data_with_payload_spec_present(self) -> None:
-        legal = [
-            _make_legal_action("Special", payload_spec={"target": {"type": "string"}})
-        ]
+        legal = [_make_legal_action("Special", payload_spec=STRUCTURED_SPECIAL_PAYLOAD)]
         request = _make_request(legal_actions=legal)
-        decision = _make_decision(request, "Special", data={"target": "enemy"})
+        decision = _make_decision(
+            request,
+            "Special",
+            data={"target": "enemy", "strength": 2},
+        )
         assert validate_decision(decision, request) == ""
+
+    @pytest.mark.parametrize(
+        ("data", "expected"),
+        [
+            ({"target": "enemy", "strength": 0}, "illegal_output"),
+            ({"target": "enemy", "strength": 2, "unknown": True}, "illegal_output"),
+            ({"target": "other", "strength": 2}, "illegal_output"),
+            ({"target": "enemy"}, "illegal_output"),
+        ],
+    )
+    def test_structured_payload_validation_rejects_invalid_shapes(
+        self, data: dict, expected: str
+    ) -> None:
+        request = _make_request(
+            legal_actions=[
+                _make_legal_action("Special", payload_spec=STRUCTURED_SPECIAL_PAYLOAD)
+            ]
+        )
+        decision = _make_decision(request, "Special", data=data)
+        assert validate_decision(decision, request) == expected
+
+    def test_prediction_requires_support_and_valid_shape(self) -> None:
+        request = _make_request(
+            legal_actions=[
+                _make_legal_action(
+                    "Read",
+                    prediction=True,
+                    prediction_spec=PREDICTION_SPEC,
+                )
+            ]
+        )
+        good = _make_decision(request, "Read")
+        good["payload"]["extra"]["prediction"] = {"horizon": 2, "confidence": "high"}
+        assert validate_decision(good, request) == ""
+
+        bad = _make_decision(request, "Read")
+        bad["payload"]["extra"]["prediction"] = {"horizon": 4, "confidence": "extreme"}
+        assert validate_decision(bad, request) == "illegal_output"
 
 
 class TestIsReplayable:
@@ -306,7 +376,7 @@ class TestFallbackSelection:
         prior = {
             "action": "Jab",
             "data": None,
-            "extra": {"di": None, "feint": False, "reverse": False},
+            "extra": {"di": None, "feint": False, "reverse": False, "prediction": None},
         }
         result = choose_fallback(
             request,
@@ -326,7 +396,7 @@ class TestFallbackSelection:
         prior = {
             "action": "Jab",
             "data": None,
-            "extra": {"di": None, "feint": False, "reverse": False},
+            "extra": {"di": None, "feint": False, "reverse": False, "prediction": None},
         }
         result = choose_fallback(
             request,
@@ -348,12 +418,22 @@ class TestFallbackSelection:
         request = _make_request(legal_actions=actions)
         result = choose_fallback(request, "timeout", "safe_continue")
         assert result["extra"]["di"] == {"x": 0, "y": 0}
+        assert result["extra"]["prediction"] is None
 
     def test_fallback_di_null_when_not_supported(self) -> None:
         actions = [_make_legal_action("Block", di=False)]
         request = _make_request(legal_actions=actions)
         result = choose_fallback(request, "timeout", "safe_continue")
         assert result["extra"]["di"] is None
+        assert result["extra"]["prediction"] is None
+
+    def test_fallback_resolves_structured_payload_defaults(self) -> None:
+        actions = [
+            _make_legal_action("Special", payload_spec=STRUCTURED_SPECIAL_PAYLOAD)
+        ]
+        request = _make_request(legal_actions=actions)
+        result = choose_fallback(request, "timeout", "safe_continue")
+        assert result["data"] == {"target": "enemy", "strength": 1}
 
     def test_fallback_preserves_match_and_turn_ids(self) -> None:
         request = _make_request(match_id="test-match-123", turn_id=7)

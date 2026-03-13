@@ -79,6 +79,34 @@ CURRENT_PROTOCOL_VERSION = ProtocolVersion.V2
 CURRENT_SCHEMA_VERSION = CURRENT_PROTOCOL_VERSION.value
 
 
+def default_prediction_spec() -> JsonObject:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["horizon"],
+        "properties": {
+            "horizon": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3,
+                "default": 1,
+                "semantic_hint": "prediction_horizon_turns",
+            },
+            "opponent_action": {
+                "type": "string",
+                "default": "",
+                "semantic_hint": "predicted_opponent_action",
+            },
+            "confidence": {
+                "type": "string",
+                "enum": ["low", "medium", "high"],
+                "default": "medium",
+                "semantic_hint": "prediction_confidence",
+            },
+        },
+    }
+
+
 def canonical_json(value: JsonValue | ProtocolModel) -> str:
     """Serialize protocol payloads with stable key ordering for cross-language hashing."""
 
@@ -526,6 +554,7 @@ class LegalAction(ProtocolModel):
     action: str
     payload_spec: JsonObject
     supports: LegalActionSupports
+    prediction_spec: JsonObject | None = None
     payload_schema: JsonObject | None = None
     label: str | None = None
     damage: float | None = None
@@ -546,6 +575,11 @@ class LegalAction(ProtocolModel):
             supports=LegalActionSupports.from_dict(
                 mapping.get("supports"),
                 context=f"{context}.supports",
+            ),
+            prediction_spec=(
+                _coerce_str_dict(prediction_spec_raw, context=f"{context}.prediction_spec")
+                if (prediction_spec_raw := mapping.get("prediction_spec")) is not None
+                else None
             ),
             payload_schema=(
                 _coerce_str_dict(payload_schema_raw, context=f"{context}.payload_schema")
