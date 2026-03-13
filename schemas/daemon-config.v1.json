@@ -22,6 +22,11 @@
           "type": "integer",
           "minimum": 1,
           "maximum": 65535
+        },
+        "auth_secret_env_var": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "Environment variable name containing the shared secret for handshake authentication. When set, clients must send the correct auth_token in the hello payload."
         }
       }
     },

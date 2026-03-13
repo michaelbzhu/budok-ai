@@ -70,9 +70,9 @@ class DefaultOpenAITransport:
         except APIConnectionError as exc:
             raise OSError(f"OpenAI transport failed: {exc}") from exc
         except APIStatusError as exc:
-            raise OpenAIProviderError(
-                f"OpenAI request failed with HTTP {exc.status_code}: {exc.response}"
-            ) from exc
+            from yomi_daemon.redact import sanitize_provider_error
+
+            raise OpenAIProviderError(sanitize_provider_error(exc)) from exc
 
         dumped = response.model_dump(mode="json")
         if not isinstance(dumped, dict):

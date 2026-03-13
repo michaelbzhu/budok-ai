@@ -92,12 +92,18 @@ func build_hello_envelope() -> Dictionary:
 		protocol_config.get("supported_versions", DEFAULT_SUPPORTED_VERSIONS)
 	)
 
-	return protocol_codec.build_envelope("hello", {
+	var hello_payload = {
 		"game_version": str(_metadata.get("game_version", "unknown")),
 		"mod_version": str(_metadata.get("version", "0.0.0")),
 		"schema_version": schema_version,
 		"supported_protocol_versions": supported_versions,
-	}, supported_versions[0])
+	}
+
+	var auth_token = str(_config.get("transport", {}).get("auth_token", ""))
+	if auth_token != "":
+		hello_payload["auth_token"] = auth_token
+
+	return protocol_codec.build_envelope("hello", hello_payload, supported_versions[0])
 
 
 func get_connection_snapshot() -> Dictionary:

@@ -70,6 +70,7 @@ async def _run_async(args: argparse.Namespace) -> int:
         policy_mapping=runtime_config.policy_mapping,
         config_snapshot=runtime_config.to_config_payload(),
         runtime_config=runtime_config,
+        auth_secret=runtime_config.transport.auth_secret,
     )
     await server.start()
     try:

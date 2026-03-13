@@ -67,6 +67,7 @@ class ConfigError(ValueError):
 class TransportConfig:
     host: str
     port: int
+    auth_secret: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,12 +379,17 @@ def parse_runtime_config_document(
         _require_string(merged.get("timeout_profile"), context=f"{context}.timeout_profile")
     )
     transport = _require_mapping(merged.get("transport"), context=f"{context}.transport")
+    auth_secret_env_var = _optional_string(
+        transport.get("auth_secret_env_var"), context=f"{context}.transport.auth_secret_env_var"
+    )
+    auth_secret = resolved_env.get(auth_secret_env_var) if auth_secret_env_var else None
 
     return DaemonRuntimeConfig(
         version=_require_string(merged.get("version"), context=f"{context}.version"),
         transport=TransportConfig(
             host=_require_string(transport.get("host"), context=f"{context}.transport.host"),
             port=_require_int(transport.get("port"), context=f"{context}.transport.port"),
+            auth_secret=auth_secret,
         ),
         timeout_profile=timeout_profile,
         decision_timeout_ms=_resolve_timeout(merged, timeout_profile, context=context),
@@ -443,7 +449,11 @@ def config_to_json_object(config: DaemonRuntimeConfig) -> JsonObject:
 
     return {
         "version": config.version,
-        "transport": {"host": config.transport.host, "port": config.transport.port},
+        "transport": {
+            "host": config.transport.host,
+            "port": config.transport.port,
+            "auth_configured": config.transport.auth_secret is not None,
+        },
         "timeout_profile": config.timeout_profile.value,
         "decision_timeout_ms": config.decision_timeout_ms,
         "fallback_mode": config.fallback_mode.value,

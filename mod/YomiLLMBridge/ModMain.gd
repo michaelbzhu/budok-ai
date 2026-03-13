@@ -148,6 +148,9 @@ func _normalize_config(raw_config: Dictionary) -> Dictionary:
 		normalized["transport"]["connect_on_ready"] = bool(
 			transport.get("connect_on_ready", true)
 		)
+		var auth_token = str(transport.get("auth_token", ""))
+		if auth_token != "":
+			normalized["transport"]["auth_token"] = auth_token
 
 	if raw_config.has("protocol") and raw_config["protocol"] is Dictionary:
 		var protocol = raw_config["protocol"]

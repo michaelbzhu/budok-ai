@@ -375,6 +375,7 @@ class Hello(ProtocolModel):
     mod_version: str
     schema_version: str
     supported_protocol_versions: tuple[ProtocolVersion, ...]
+    auth_token: str | None = None
 
     @classmethod
     def from_dict(cls, raw: object, *, context: str = "hello") -> "Hello":
@@ -399,6 +400,7 @@ class Hello(ProtocolModel):
                 mapping.get("schema_version"), context=f"{context}.schema_version"
             ),
             supported_protocol_versions=versions,
+            auth_token=_optional_string(mapping.get("auth_token"), context=f"{context}.auth_token"),
         )
 
 

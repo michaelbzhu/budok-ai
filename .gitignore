@@ -12,3 +12,6 @@ htmlcov/
 runs/*
 !runs/.gitkeep
 dist/
+.env
+*.env
+!.env.example

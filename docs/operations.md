@@ -41,6 +41,28 @@ uv run --project daemon pytest tests/daemon
 - Provider credentials stay out of JSON config files. Policy entries reference them by
   `credential_env_var`, and the loader resolves the value from the current process environment.
 
+## Security
+
+### Localhost-only binding
+
+The daemon is designed for local use only and defaults to `127.0.0.1`. If you change `transport.host` to a non-local address (e.g. `0.0.0.0`), the daemon will log a warning. Do not expose the daemon to untrusted networks.
+
+### Shared-secret authentication
+
+The daemon optionally requires clients to present a shared secret in the `hello` handshake. To enable:
+
+1. Set `transport.auth_secret_env_var` in the daemon config to an environment variable name (e.g. `"YOMI_AUTH_SECRET"`).
+2. Export that variable: `export YOMI_AUTH_SECRET=your-secret-here`.
+3. Set `transport.auth_token` in the mod's bridge config to the same value.
+
+Clients that omit the token or send the wrong value receive a WebSocket close with code `1008` (policy violation). When no `auth_secret_env_var` is configured, authentication is not enforced.
+
+### Credential safety
+
+- Provider API keys are never written to config files, artifacts, or logs. They are resolved from environment variables at runtime.
+- The `.gitignore` excludes `.env` and `*.env` files. Only `.env.example` (which contains no real keys) is tracked.
+- Provider error messages in `stderr.log` and log output are sanitized to remove API key patterns before writing.
+
 ## Artifact layout
 
 Per-match artifacts belong under `runs/<timestamp>_<match_id>/`.

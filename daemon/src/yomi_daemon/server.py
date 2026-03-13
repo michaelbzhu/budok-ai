@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 from collections.abc import Mapping, Sequence
@@ -36,6 +37,7 @@ from yomi_daemon.protocol import (
     ProtocolVersion,
     SUPPORTED_PROTOCOL_VERSIONS,
 )
+from yomi_daemon.redact import redact_secrets
 from yomi_daemon.storage.writer import MatchArtifactWriter
 from yomi_daemon.validation import ProtocolValidationError, parse_envelope
 
@@ -67,11 +69,13 @@ class DaemonServer:
         policy_mapping: PlayerPolicyMapping | None = None,
         config_snapshot: ConfigPayload | None = None,
         runtime_config: "DaemonRuntimeConfig | None" = None,
+        auth_secret: str | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self.host = host
         self.port = port
         self._runtime_config = runtime_config
+        self._auth_secret = auth_secret
         self.runtime_config = ServerRuntimeConfig(
             policy_mapping=policy_mapping
             if policy_mapping is not None
@@ -107,12 +111,20 @@ class DaemonServer:
         if self._server is not None:
             return
 
+        if self.host not in ("127.0.0.1", "localhost", "::1"):
+            self.logger.warning(
+                "Server binding to non-local address %s — the daemon is designed for "
+                "local use only. Exposing it to the network is not recommended.",
+                self.host,
+            )
+
         self._server = await serve(self._handle_connection, self.host, self.port)
         self._stopped.clear()
         self.logger.info(
-            "Daemon server listening on ws://%s:%d",
+            "Daemon server listening on ws://%s:%d%s",
             self.host,
             self.listening_port,
+            " (auth required)" if self._auth_secret else "",
         )
 
     async def stop(self) -> None:
@@ -297,7 +309,7 @@ class DaemonServer:
             self.logger.warning("Session %s: %s", session.session_id, msg)
             errors.append(msg)
         except Exception as exc:
-            msg = f"Unexpected error in match loop: {exc}"
+            msg = f"Unexpected error in match loop: {redact_secrets(str(exc))}"
             self.logger.error("Session %s: %s", session.session_id, msg, exc_info=True)
             errors.append(msg)
             if writer is not None:
@@ -478,6 +490,17 @@ class DaemonServer:
                 reason="hello payload did not decode correctly",
             )
             raise HandshakeRejectedError("hello payload did not decode correctly")
+
+        # Shared-secret authentication check
+        if self._auth_secret is not None:
+            client_token = hello.auth_token or ""
+            if not hmac.compare_digest(client_token, self._auth_secret):
+                await self._close_for_handshake_error(
+                    connection,
+                    code=1008,
+                    reason="authentication failed",
+                )
+                raise HandshakeRejectedError("authentication failed: invalid or missing auth_token")
 
         accepted_version = negotiate_protocol_version(hello.supported_protocol_versions)
         if accepted_version is None:

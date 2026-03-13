@@ -42,7 +42,6 @@ from yomi_daemon.protocol import (
     FighterObservation,
     HistoryEntry,
     LegalAction,
-
     LoggingConfig,
     MessageType,
     Observation,

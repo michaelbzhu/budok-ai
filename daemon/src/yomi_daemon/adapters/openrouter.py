@@ -82,9 +82,9 @@ class DefaultOpenRouterTransport:
         except APIConnectionError as exc:
             raise OSError(f"OpenRouter transport failed: {exc}") from exc
         except APIStatusError as exc:
-            raise OpenRouterProviderError(
-                f"OpenRouter request failed with HTTP {exc.status_code}: {exc.response}"
-            ) from exc
+            from yomi_daemon.redact import sanitize_provider_error
+
+            raise OpenRouterProviderError(sanitize_provider_error(exc)) from exc
 
         dumped = response.model_dump(mode="json")
         if not isinstance(dumped, dict):
