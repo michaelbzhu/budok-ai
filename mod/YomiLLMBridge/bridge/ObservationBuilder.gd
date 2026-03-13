@@ -20,7 +20,7 @@ func build_observation(game, active_fighter) -> Dictionary:
 func _build_fighter_observation(fighter) -> Dictionary:
 	var pos = fighter.get_pos()
 	var vel = fighter.get_vel()
-	return {
+	var obs = {
 		"id": _fighter_id(fighter),
 		"character": str(fighter.name),
 		"hp": int(fighter.hp),
@@ -35,6 +35,67 @@ func _build_fighter_observation(fighter) -> Dictionary:
 		"hitstun": int(fighter.blockstun_ticks),
 		"hitlag": int(fighter.hitlag_ticks),
 	}
+	var char_data = _build_character_data(fighter)
+	if char_data != null and char_data.size() > 0:
+		obs["character_data"] = char_data
+	return obs
+
+
+func _build_character_data(fighter) -> Dictionary:
+	var char_name = str(fighter.name)
+	if char_name == "Cowboy":
+		return {
+			"bullets_left": int(fighter.bullets_left) if "bullets_left" in fighter else 0,
+			"has_gun": bool(fighter.has_gun) if "has_gun" in fighter else false,
+			"consecutive_shots": int(fighter.consecutive_shots) if "consecutive_shots" in fighter else 0,
+		}
+	elif char_name == "Robot":
+		var data = {}
+		if "loic_meter" in fighter:
+			data["loic_meter"] = int(fighter.loic_meter)
+		if "loic_meter_max" in fighter:
+			data["loic_meter_max"] = int(fighter.loic_meter_max)
+		if "can_loic" in fighter:
+			data["can_loic"] = bool(fighter.can_loic)
+		if "armor_pips" in fighter:
+			data["armor_pips"] = int(fighter.armor_pips)
+		if "armor_active" in fighter:
+			data["armor_active"] = bool(fighter.armor_active)
+		return data
+	elif char_name == "Ninja":
+		var data = {}
+		if "momentum_stores" in fighter:
+			data["momentum_stores"] = int(fighter.momentum_stores)
+		if "sticky_bombs_left" in fighter:
+			data["sticky_bombs_left"] = int(fighter.sticky_bombs_left)
+		if "juke_pips" in fighter:
+			data["juke_pips"] = int(fighter.juke_pips)
+		if "juke_pips_max" in fighter:
+			data["juke_pips_max"] = int(fighter.juke_pips_max)
+		return data
+	elif char_name == "Mutant":
+		var data = {}
+		if "juke_pips" in fighter:
+			data["juke_pips"] = int(fighter.juke_pips)
+		if "juke_pips_max" in fighter:
+			data["juke_pips_max"] = int(fighter.juke_pips_max)
+		if "install_ticks" in fighter:
+			data["install_ticks"] = int(fighter.install_ticks)
+		if "bc_charge" in fighter:
+			data["bc_charge"] = int(fighter.bc_charge)
+		return data
+	elif char_name == "Wizard":
+		var data = {}
+		if "hover_left" in fighter:
+			data["hover_left"] = int(fighter.hover_left)
+		if "hover_max" in fighter:
+			data["hover_max"] = int(fighter.hover_max)
+		if "geyser_charge" in fighter:
+			data["geyser_charge"] = int(fighter.geyser_charge)
+		if "gusts_in_combo" in fighter:
+			data["gusts_in_combo"] = int(fighter.gusts_in_combo)
+		return data
+	return {}
 
 
 func _build_stage(game) -> Dictionary:

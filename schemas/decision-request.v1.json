@@ -139,6 +139,10 @@
               "hitlag": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "character_data": {
+                "type": "object",
+                "additionalProperties": true
               }
             }
           }

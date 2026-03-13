@@ -412,10 +412,12 @@ class FighterObservation(ProtocolModel):
     combo_count: int
     hitstun: int
     hitlag: int
+    character_data: JsonObject | None = None
 
     @classmethod
     def from_dict(cls, raw: object, *, context: str) -> "FighterObservation":
         mapping = _require_mapping(raw, context=context)
+        raw_character_data = mapping.get("character_data")
         return cls(
             id=_require_string(mapping.get("id"), context=f"{context}.id"),
             character=_require_string(mapping.get("character"), context=f"{context}.character"),
@@ -436,6 +438,11 @@ class FighterObservation(ProtocolModel):
             ),
             hitstun=_require_integer(mapping.get("hitstun"), context=f"{context}.hitstun"),
             hitlag=_require_integer(mapping.get("hitlag"), context=f"{context}.hitlag"),
+            character_data=(
+                _coerce_str_dict(raw_character_data, context=f"{context}.character_data")
+                if raw_character_data is not None
+                else None
+            ),
         )
 
 

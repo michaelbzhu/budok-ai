@@ -33,10 +33,72 @@ def fighter_id(fighter: dict[str, Any]) -> str:
     return "p1" if int(fighter["id"]) == 1 else "p2"
 
 
+def _build_character_data(fighter: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract character-specific resource data based on character name."""
+    name = str(fighter.get("name", ""))
+    if name == "Cowboy":
+        return {
+            "bullets_left": int(fighter["bullets_left"])
+            if "bullets_left" in fighter
+            else 0,
+            "has_gun": bool(fighter.get("has_gun", False)),
+            "consecutive_shots": int(fighter["consecutive_shots"])
+            if "consecutive_shots" in fighter
+            else 0,
+        }
+    if name == "Robot":
+        data: dict[str, Any] = {}
+        if "loic_meter" in fighter:
+            data["loic_meter"] = int(fighter["loic_meter"])
+        if "loic_meter_max" in fighter:
+            data["loic_meter_max"] = int(fighter["loic_meter_max"])
+        if "can_loic" in fighter:
+            data["can_loic"] = bool(fighter["can_loic"])
+        if "armor_pips" in fighter:
+            data["armor_pips"] = int(fighter["armor_pips"])
+        if "armor_active" in fighter:
+            data["armor_active"] = bool(fighter["armor_active"])
+        return data or None
+    if name == "Ninja":
+        data = {}
+        if "momentum_stores" in fighter:
+            data["momentum_stores"] = int(fighter["momentum_stores"])
+        if "sticky_bombs_left" in fighter:
+            data["sticky_bombs_left"] = int(fighter["sticky_bombs_left"])
+        if "juke_pips" in fighter:
+            data["juke_pips"] = int(fighter["juke_pips"])
+        if "juke_pips_max" in fighter:
+            data["juke_pips_max"] = int(fighter["juke_pips_max"])
+        return data or None
+    if name == "Mutant":
+        data = {}
+        if "juke_pips" in fighter:
+            data["juke_pips"] = int(fighter["juke_pips"])
+        if "juke_pips_max" in fighter:
+            data["juke_pips_max"] = int(fighter["juke_pips_max"])
+        if "install_ticks" in fighter:
+            data["install_ticks"] = int(fighter["install_ticks"])
+        if "bc_charge" in fighter:
+            data["bc_charge"] = int(fighter["bc_charge"])
+        return data or None
+    if name == "Wizard":
+        data = {}
+        if "hover_left" in fighter:
+            data["hover_left"] = int(fighter["hover_left"])
+        if "hover_max" in fighter:
+            data["hover_max"] = int(fighter["hover_max"])
+        if "geyser_charge" in fighter:
+            data["geyser_charge"] = int(fighter["geyser_charge"])
+        if "gusts_in_combo" in fighter:
+            data["gusts_in_combo"] = int(fighter["gusts_in_combo"])
+        return data or None
+    return None
+
+
 def build_fighter_observation(fighter: dict[str, Any]) -> dict[str, Any]:
     pos = fighter["position"]
     vel = fighter["velocity"]
-    return {
+    obs: dict[str, Any] = {
         "id": fighter_id(fighter),
         "character": str(fighter["name"]),
         "hp": int(fighter["hp"]),
@@ -52,6 +114,10 @@ def build_fighter_observation(fighter: dict[str, Any]) -> dict[str, Any]:
         "hitstun": int(fighter["blockstun_ticks"]),
         "hitlag": int(fighter["hitlag_ticks"]),
     }
+    character_data = _build_character_data(fighter)
+    if character_data:
+        obs["character_data"] = character_data
+    return obs
 
 
 def build_objects(game_state: dict[str, Any]) -> list[dict[str, Any]]:

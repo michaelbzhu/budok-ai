@@ -12,6 +12,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.mod_observation_harness import (
+    _build_character_data,
     build_decision_request,
     build_fighter_observation,
     build_legal_actions,
@@ -32,6 +33,7 @@ except ImportError:
 
 BASIC_TURN = load_fixture("basic_turn.json")
 EMPTY_OBJECTS = load_fixture("empty_objects.json")
+COWBOY_CHARACTER_DATA = load_fixture("cowboy_character_data.json")
 
 
 # --- Observation normalization ---
@@ -315,3 +317,45 @@ class TestDecisionRequest:
                 EMPTY_OBJECTS, player_id, match_id="test-match", turn_id=1
             )
             jsonschema.validate(instance=req, schema=schema)
+
+
+# --- Character data extraction ---
+
+
+class TestCharacterData:
+    def test_cowboy_produces_character_data(self) -> None:
+        obs = build_fighter_observation(COWBOY_CHARACTER_DATA["p1"])
+        assert "character_data" in obs
+        cd = obs["character_data"]
+        assert cd["bullets_left"] == 4
+        assert cd["has_gun"] is True
+        assert cd["consecutive_shots"] == 2
+
+    def test_unknown_character_no_character_data(self) -> None:
+        """A fighter with an unrecognized character name produces no character_data key."""
+        fighter = dict(BASIC_TURN["p1"])
+        fighter["name"] = "Alien"
+        obs = build_fighter_observation(fighter)
+        assert "character_data" not in obs
+
+    def test_robot_without_specific_fields_no_character_data(self) -> None:
+        """Robot fighter without any character-specific fields → no character_data."""
+        obs = build_fighter_observation(BASIC_TURN["p2"])
+        assert "character_data" not in obs
+
+    def test_character_data_extraction_function(self) -> None:
+        data = _build_character_data(COWBOY_CHARACTER_DATA["p1"])
+        assert data is not None
+        assert set(data.keys()) == {"bullets_left", "has_gun", "consecutive_shots"}
+
+    def test_character_data_none_for_unknown(self) -> None:
+        fighter = {"name": "Alien"}
+        assert _build_character_data(fighter) is None
+
+    @pytest.mark.skipif(jsonschema is None, reason="jsonschema not installed")
+    def test_cowboy_character_data_validates_against_schema(self) -> None:
+        schema = load_decision_request_schema()
+        req = build_decision_request(
+            COWBOY_CHARACTER_DATA, "p1", match_id="test-match", turn_id=1
+        )
+        jsonschema.validate(instance=req, schema=schema)

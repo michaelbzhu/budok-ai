@@ -78,3 +78,10 @@ Match artifacts are written under `runs/<timestamp>_<match_id>/`. The directory 
 - Godot bridge logic lives under `mod/YomiLLMBridge/`.
 
 The authoritative requirements remain [the unified spec](specs/unified_spec.md) and [the work plan](plans/v0.md).
+
+## Known limitations
+
+- Provider decisions (Anthropic, OpenAI, OpenRouter) are non-deterministic due to model sampling. Only baseline policies produce reproducible runs.
+- `character_data` is supported for 5 of 6 characters (Cowboy, Robot, Ninja, Mutant, Wizard). Alien returns empty/no data.
+- The `history` field in observations is always empty in the MVP. Historical turn data is not yet captured.
+- Daemon-only benchmarks simulate the WebSocket protocol but do not run against a live game instance.
