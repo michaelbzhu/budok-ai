@@ -48,7 +48,8 @@
   "objects": [
     {
       "class_name": "Bullet",
-      "position": {"x": 100, "y": 50}
+      "position": {"x": 100, "y": 50},
+      "owner": "p1"
     }
   ],
   "action_buttons": {

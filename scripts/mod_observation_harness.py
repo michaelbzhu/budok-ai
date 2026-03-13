@@ -26,7 +26,9 @@ if str(DAEMON_SRC) not in sys.path:
 from yomi_daemon.protocol import (
     CURRENT_PROTOCOL_VERSION,
     CURRENT_SCHEMA_VERSION,
+    MAX_HISTORY_ENTRIES,
     canonical_json,
+    classify_object_type,
     default_prediction_spec,
 )
 
@@ -125,9 +127,28 @@ def build_fighter_observation(fighter: dict[str, Any]) -> dict[str, Any]:
         "facing": "right" if int(fighter["facing_int"]) == 1 else "left",
         "current_state": str(fighter["state_name"]),
         "combo_count": int(fighter["combo_count"]),
-        "hitstun": int(fighter["blockstun_ticks"]),
+        "blockstun": int(fighter["blockstun_ticks"]),
         "hitlag": int(fighter["hitlag_ticks"]),
+        "state_interruptable": bool(fighter.get("state_interruptable", False)),
+        "can_feint": bool(fighter.get("can_feint", False)),
+        "grounded": pos["y"] <= 0.0,
     }
+    # Optional advanced fighter state
+    for field_name in (
+        "air_actions_remaining",
+        "feints_remaining",
+        "sadness",
+    ):
+        if field_name in fighter:
+            obs[field_name] = int(fighter[field_name])
+    for field_name in (
+        "initiative",
+        "wakeup_throw_immune",
+    ):
+        if field_name in fighter:
+            obs[field_name] = bool(fighter[field_name])
+    if "combo_proration" in fighter:
+        obs["combo_proration"] = float(fighter["combo_proration"])
     character_data = _build_character_data(fighter)
     if character_data:
         obs["character_data"] = character_data
@@ -141,12 +162,17 @@ def build_objects(game_state: dict[str, Any]) -> list[dict[str, Any]]:
         if obj is None:
             continue
         pos = obj.get("position", {"x": 0, "y": 0})
-        result.append(
-            {
-                "type": str(obj.get("class_name", "Unknown")),
-                "position": {"x": pos["x"], "y": pos["y"]},
-            }
-        )
+        raw_type = str(obj.get("class_name", obj.get("type", "Unknown")))
+        entry: dict[str, Any] = {
+            "type": raw_type,
+            "position": {"x": pos["x"], "y": pos["y"]},
+        }
+        category = classify_object_type(raw_type)
+        if category != "unknown":
+            entry["category"] = category
+        if "owner" in obj:
+            entry["owner"] = str(obj["owner"])
+        result.append(entry)
     result.sort(key=lambda o: (o["type"], o["position"]["x"], o["position"]["y"]))
     return result
 
@@ -160,8 +186,11 @@ def build_stage(game_state: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_observation(
-    game_state: dict[str, Any], active_fighter: dict[str, Any]
+    game_state: dict[str, Any],
+    active_fighter: dict[str, Any],
+    history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    bounded_history = (history or [])[-MAX_HISTORY_ENTRIES:]
     return {
         "tick": int(game_state["current_tick"]),
         "frame": int(active_fighter["state_tick"]),
@@ -172,8 +201,25 @@ def build_observation(
         ],
         "objects": build_objects(game_state),
         "stage": build_stage(game_state),
-        "history": [],
+        "history": bounded_history,
     }
+
+
+def build_history_entry(
+    turn_id: int,
+    player_id: str,
+    action: str,
+    *,
+    was_fallback: bool = False,
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {
+        "turn_id": turn_id,
+        "player_id": player_id,
+        "action": action,
+    }
+    if was_fallback:
+        entry["was_fallback"] = True
+    return entry
 
 
 def build_legal_actions(
@@ -410,9 +456,10 @@ def build_decision_request(
     match_id: str | None = None,
     turn_id: int = 1,
     deadline_ms: int = 2500,
+    history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     fighter = game_state[player_id]
-    observation = build_observation(game_state, fighter)
+    observation = build_observation(game_state, fighter, history=history)
     legal_actions = build_legal_actions(game_state, fighter, player_id)
 
     return {
@@ -451,6 +498,7 @@ def build_decision_request_envelope(
     turn_id: int = 1,
     deadline_ms: int = 2500,
     ts: str = "2026-03-12T00:00:00Z",
+    history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return build_envelope(
         "decision_request",
@@ -460,6 +508,7 @@ def build_decision_request_envelope(
             match_id=match_id,
             turn_id=turn_id,
             deadline_ms=deadline_ms,
+            history=history,
         ),
         ts=ts,
     )

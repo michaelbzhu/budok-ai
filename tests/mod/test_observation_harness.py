@@ -18,11 +18,12 @@ if str(REPO_ROOT) not in sys.path:
 
 from scripts.mod_observation_harness import (
     _build_character_data,
-    build_decision_request_envelope,
-    build_match_ended_envelope,
     build_decision_request,
+    build_decision_request_envelope,
     build_fighter_observation,
+    build_history_entry,
     build_legal_actions,
+    build_match_ended_envelope,
     build_objects,
     build_observation,
     build_stage,
@@ -46,6 +47,7 @@ ROBOT_PARAMETERIZED = load_fixture("robot_parameterized.json")
 NINJA_PARAMETERIZED = load_fixture("ninja_parameterized.json")
 MUTANT_PARAMETERIZED = load_fixture("mutant_parameterized.json")
 WIZARD_PARAMETERIZED = load_fixture("wizard_parameterized.json")
+OBSERVATION_V2_RICH = load_fixture("observation_v2_rich.json")
 
 
 # --- Observation normalization ---
@@ -88,8 +90,11 @@ class TestFighterObservation:
             "facing",
             "current_state",
             "combo_count",
-            "hitstun",
+            "blockstun",
             "hitlag",
+            "state_interruptable",
+            "can_feint",
+            "grounded",
         ]
         for field in required:
             assert field in obs, f"Missing field: {field}"
@@ -98,6 +103,84 @@ class TestFighterObservation:
         obs = build_fighter_observation(BASIC_TURN["p1"])
         assert set(obs["position"].keys()) == {"x", "y"}
         assert set(obs["velocity"].keys()) == {"x", "y"}
+
+    def test_blockstun_reads_from_blockstun_ticks(self) -> None:
+        """blockstun field correctly reads from blockstun_ticks (not mislabeled as hitstun)."""
+        obs = build_fighter_observation(BASIC_TURN["p1"])
+        assert obs["blockstun"] == BASIC_TURN["p1"]["blockstun_ticks"]
+        assert "hitstun" not in obs
+
+    def test_blockstun_nonzero_value(self) -> None:
+        """blockstun reports correct nonzero value from fixture."""
+        obs = build_fighter_observation(OBSERVATION_V2_RICH["p2"])
+        assert obs["blockstun"] == 12
+
+    def test_hitlag_reads_from_hitlag_ticks(self) -> None:
+        obs = build_fighter_observation(BASIC_TURN["p1"])
+        assert obs["hitlag"] == BASIC_TURN["p1"]["hitlag_ticks"]
+
+    def test_hitlag_nonzero_value(self) -> None:
+        obs = build_fighter_observation(OBSERVATION_V2_RICH["p1"])
+        assert obs["hitlag"] == 3
+
+    def test_state_interruptable_extracted(self) -> None:
+        obs_p1 = build_fighter_observation(BASIC_TURN["p1"])
+        assert obs_p1["state_interruptable"] is True
+
+        obs_p2 = build_fighter_observation(BASIC_TURN["p2"])
+        assert obs_p2["state_interruptable"] is False
+
+    def test_can_feint_extracted(self) -> None:
+        obs_p1 = build_fighter_observation(BASIC_TURN["p1"])
+        assert obs_p1["can_feint"] is True
+
+        obs_p2 = build_fighter_observation(BASIC_TURN["p2"])
+        assert obs_p2["can_feint"] is False
+
+    def test_grounded_when_on_ground(self) -> None:
+        obs = build_fighter_observation(BASIC_TURN["p1"])
+        assert obs["grounded"] is True
+
+    def test_grounded_false_when_airborne(self) -> None:
+        obs = build_fighter_observation(OBSERVATION_V2_RICH["p1"])
+        assert obs["grounded"] is False
+        assert OBSERVATION_V2_RICH["p1"]["position"]["y"] > 0
+
+    def test_optional_air_actions_remaining(self) -> None:
+        obs = build_fighter_observation(OBSERVATION_V2_RICH["p1"])
+        assert obs["air_actions_remaining"] == 1
+
+    def test_optional_feints_remaining(self) -> None:
+        obs = build_fighter_observation(OBSERVATION_V2_RICH["p1"])
+        assert obs["feints_remaining"] == 2
+
+    def test_optional_initiative(self) -> None:
+        obs = build_fighter_observation(OBSERVATION_V2_RICH["p1"])
+        assert obs["initiative"] is True
+
+    def test_optional_sadness(self) -> None:
+        obs = build_fighter_observation(OBSERVATION_V2_RICH["p2"])
+        assert obs["sadness"] == 3
+
+    def test_optional_wakeup_throw_immune(self) -> None:
+        obs = build_fighter_observation(OBSERVATION_V2_RICH["p2"])
+        assert obs["wakeup_throw_immune"] is True
+
+    def test_optional_combo_proration(self) -> None:
+        obs = build_fighter_observation(OBSERVATION_V2_RICH["p2"])
+        assert obs["combo_proration"] == 0.75
+
+    def test_optional_fields_absent_when_not_in_fixture(self) -> None:
+        obs = build_fighter_observation(BASIC_TURN["p1"])
+        for field in (
+            "air_actions_remaining",
+            "feints_remaining",
+            "initiative",
+            "sadness",
+            "wakeup_throw_immune",
+            "combo_proration",
+        ):
+            assert field not in obs
 
 
 class TestObservation:
@@ -118,9 +201,30 @@ class TestObservation:
         assert obs["tick"] == BASIC_TURN["current_tick"]
         assert obs["frame"] == BASIC_TURN["p1"]["state_tick"]
 
-    def test_history_is_empty_list(self) -> None:
+    def test_history_empty_by_default(self) -> None:
         obs = build_observation(BASIC_TURN, BASIC_TURN["p1"])
         assert obs["history"] == []
+
+    def test_history_with_entries(self) -> None:
+        history = [
+            build_history_entry(1, "p1", "Jab"),
+            build_history_entry(2, "p2", "Block", was_fallback=True),
+        ]
+        obs = build_observation(BASIC_TURN, BASIC_TURN["p1"], history=history)
+        assert len(obs["history"]) == 2
+        assert obs["history"][0] == {"turn_id": 1, "player_id": "p1", "action": "Jab"}
+        assert obs["history"][1] == {
+            "turn_id": 2,
+            "player_id": "p2",
+            "action": "Block",
+            "was_fallback": True,
+        }
+
+    def test_history_bounded_to_max_entries(self) -> None:
+        history = [build_history_entry(i, "p1", "Jab") for i in range(20)]
+        obs = build_observation(BASIC_TURN, BASIC_TURN["p1"], history=history)
+        assert len(obs["history"]) == 10
+        assert obs["history"][0]["turn_id"] == 10  # last 10 entries
 
     def test_all_required_observation_fields(self) -> None:
         obs = build_observation(BASIC_TURN, BASIC_TURN["p1"])
@@ -156,6 +260,14 @@ class TestObjects:
         assert objects[0]["type"] == "Bullet"
         assert objects[0]["position"] == {"x": 100, "y": 50}
 
+    def test_object_category_projectile(self) -> None:
+        objects = build_objects(BASIC_TURN)
+        assert objects[0]["category"] == "projectile"
+
+    def test_object_owner(self) -> None:
+        objects = build_objects(BASIC_TURN)
+        assert objects[0]["owner"] == "p1"
+
     def test_empty_objects(self) -> None:
         objects = build_objects(EMPTY_OBJECTS)
         assert objects == []
@@ -174,6 +286,23 @@ class TestObjects:
         assert objects[1]["type"] == "Arrow"
         assert objects[1]["position"]["x"] == 100
         assert objects[2]["type"] == "Zap"
+
+    def test_multiple_object_types_and_categories(self) -> None:
+        objects = build_objects(OBSERVATION_V2_RICH)
+        types = {obj["type"] for obj in objects}
+        assert types == {"Geyser", "Shuriken", "StickyBomb"}
+
+        projectiles = [o for o in objects if o.get("category") == "projectile"]
+        installs = [o for o in objects if o.get("category") == "install"]
+        assert len(projectiles) == 2
+        assert len(installs) == 1
+
+    def test_object_without_known_category_omits_category_key(self) -> None:
+        state = {
+            "objects": [{"class_name": "UnknownThing", "position": {"x": 0, "y": 0}}]
+        }
+        objects = build_objects(state)
+        assert "category" not in objects[0]
 
 
 # --- Legal action canonicalization ---
@@ -344,6 +473,14 @@ class TestDeterminism:
             assert canonical_json(fixture["payload"]) == fixture["canonical_json"]
             assert sha256_hash(fixture["payload"]) == fixture["sha256"]
 
+    def test_observation_with_history_produces_different_hash(self) -> None:
+        obs_no_history = build_observation(BASIC_TURN, BASIC_TURN["p1"])
+        history = [build_history_entry(1, "p1", "Jab")]
+        obs_with_history = build_observation(
+            BASIC_TURN, BASIC_TURN["p1"], history=history
+        )
+        assert sha256_hash(obs_no_history) != sha256_hash(obs_with_history)
+
 
 # --- DecisionRequest envelope ---
 
@@ -408,6 +545,26 @@ class TestDecisionRequest:
             )
             jsonschema.validate(instance=req, schema=schema)
 
+    @pytest.mark.skipif(jsonschema is None, reason="jsonschema not installed")
+    def test_rich_observation_validates_against_schema(self) -> None:
+        schema = load_decision_request_schema()
+        req = build_decision_request(
+            OBSERVATION_V2_RICH, "p1", match_id="test-match", turn_id=1
+        )
+        jsonschema.validate(instance=req, schema=schema)
+
+    @pytest.mark.skipif(jsonschema is None, reason="jsonschema not installed")
+    def test_envelope_with_history_validates(self) -> None:
+        schema = load_decision_request_schema()
+        history = [
+            build_history_entry(1, "p1", "Jab"),
+            build_history_entry(2, "p2", "Block", was_fallback=True),
+        ]
+        req = build_decision_request(
+            BASIC_TURN, "p1", match_id="test-match", turn_id=3, history=history
+        )
+        jsonschema.validate(instance=req, schema=schema)
+
     def test_decision_request_envelope_uses_v2_contract(self) -> None:
         envelope = build_decision_request_envelope(
             BASIC_TURN, "p1", match_id="test-match", turn_id=1
@@ -437,14 +594,12 @@ class TestCharacterData:
         assert cd["consecutive_shots"] == 2
 
     def test_unknown_character_no_character_data(self) -> None:
-        """A fighter with an unrecognized character name produces no character_data key."""
         fighter = dict(BASIC_TURN["p1"])
         fighter["name"] = "Alien"
         obs = build_fighter_observation(fighter)
         assert "character_data" not in obs
 
     def test_robot_without_specific_fields_no_character_data(self) -> None:
-        """Robot fighter without any character-specific fields → no character_data."""
         obs = build_fighter_observation(BASIC_TURN["p2"])
         assert "character_data" not in obs
 
@@ -456,6 +611,22 @@ class TestCharacterData:
     def test_character_data_none_for_unknown(self) -> None:
         fighter = {"name": "Alien"}
         assert _build_character_data(fighter) is None
+
+    def test_ninja_character_data_from_rich_fixture(self) -> None:
+        data = _build_character_data(OBSERVATION_V2_RICH["p1"])
+        assert data is not None
+        assert data["momentum_stores"] == 3
+        assert data["sticky_bombs_left"] == 1
+        assert data["juke_pips"] == 2
+        assert data["juke_pips_max"] == 3
+
+    def test_wizard_character_data_from_rich_fixture(self) -> None:
+        data = _build_character_data(OBSERVATION_V2_RICH["p2"])
+        assert data is not None
+        assert data["hover_left"] == 15
+        assert data["hover_max"] == 60
+        assert data["geyser_charge"] == 2
+        assert data["gusts_in_combo"] == 0
 
     @pytest.mark.skipif(jsonschema is None, reason="jsonschema not installed")
     def test_cowboy_character_data_validates_against_schema(self) -> None:

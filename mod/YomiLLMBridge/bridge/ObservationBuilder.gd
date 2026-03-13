@@ -3,9 +3,30 @@ extends RefCounted
 # Pure data extraction from live game state into a deterministic observation dictionary.
 # No side effects. Always emits p1 before p2 for stability.
 
+const MAX_HISTORY_ENTRIES := 10
 
-func build_observation(game, active_fighter) -> Dictionary:
+# Maps known game object types to gameplay-meaningful categories.
+const OBJECT_CATEGORY_MAP := {
+	"Bullet": "projectile",
+	"Arrow": "projectile",
+	"StickyBomb": "projectile",
+	"Shuriken": "projectile",
+	"LoicBeam": "projectile",
+	"Zap": "projectile",
+	"Fireball": "projectile",
+	"WindSlash": "projectile",
+	"Geyser": "install",
+	"Storm": "install",
+	"Trap": "install",
+	"Mine": "install",
+	"Shield": "effect",
+	"Aura": "effect",
+}
+
+
+func build_observation(game, active_fighter, history: Array = []) -> Dictionary:
 	var active_player = _fighter_id(active_fighter)
+	var bounded_history = history.slice(max(0, history.size() - MAX_HISTORY_ENTRIES), history.size())
 	return {
 		"tick": int(game.current_tick),
 		"frame": int(active_fighter.current_state().current_tick),
@@ -13,7 +34,7 @@ func build_observation(game, active_fighter) -> Dictionary:
 		"fighters": [_build_fighter_observation(game.p1), _build_fighter_observation(game.p2)],
 		"objects": _build_objects(game),
 		"stage": _build_stage(game),
-		"history": [],
+		"history": bounded_history,
 	}
 
 
@@ -32,9 +53,25 @@ func _build_fighter_observation(fighter) -> Dictionary:
 		"facing": "right" if int(fighter.get_facing_int()) == 1 else "left",
 		"current_state": str(fighter.current_state().state_name),
 		"combo_count": int(fighter.combo_count),
-		"hitstun": int(fighter.blockstun_ticks),
+		"blockstun": int(fighter.blockstun_ticks),
 		"hitlag": int(fighter.hitlag_ticks),
+		"state_interruptable": bool(fighter.state_interruptable) if "state_interruptable" in fighter else false,
+		"can_feint": bool(fighter.can_feint) if "can_feint" in fighter else false,
+		"grounded": pos.y <= 0.0,
 	}
+	# Optional advanced fighter state - only emitted when available in game
+	if "air_actions_remaining" in fighter:
+		obs["air_actions_remaining"] = int(fighter.air_actions_remaining)
+	if "feints_remaining" in fighter:
+		obs["feints_remaining"] = int(fighter.feints_remaining)
+	if "initiative" in fighter:
+		obs["initiative"] = bool(fighter.initiative)
+	if "sadness" in fighter:
+		obs["sadness"] = int(fighter.sadness)
+	if "wakeup_throw_immune" in fighter:
+		obs["wakeup_throw_immune"] = bool(fighter.wakeup_throw_immune)
+	if "combo_proration" in fighter:
+		obs["combo_proration"] = float(fighter.combo_proration)
 	var char_data = _build_character_data(fighter)
 	if char_data != null and char_data.size() > 0:
 		obs["character_data"] = char_data
@@ -119,14 +156,46 @@ func _build_objects(game) -> Array:
 		if not is_instance_valid(obj):
 			continue
 		var obj_pos = obj.get_pos() if obj.has_method("get_pos") else Vector2.ZERO
+		var raw_type = _resolve_object_type(obj)
 		var entry = {
-			"type": str(obj.get_class()),
+			"type": raw_type,
 			"position": {"x": obj_pos.x, "y": obj_pos.y},
 		}
+		var category = _classify_object(raw_type)
+		if category != "unknown":
+			entry["category"] = category
+		if "owner_id" in obj:
+			entry["owner"] = "p1" if int(obj.owner_id) == 1 else "p2"
 		result.append(entry)
 	# Sort by type + position for determinism
 	result.sort_custom(self, "_sort_objects")
 	return result
+
+
+func _resolve_object_type(obj) -> String:
+	# Prefer the node name (usually gameplay-meaningful like "Bullet", "StickyBomb")
+	if obj.name != null and str(obj.name) != "":
+		var node_name = str(obj.name)
+		# Strip trailing digits added by Godot for duplicate nodes (e.g. "Bullet2" -> "Bullet")
+		while node_name.length() > 0 and node_name[-1] >= "0" and node_name[-1] <= "9":
+			node_name = node_name.substr(0, node_name.length() - 1)
+		if node_name != "":
+			return node_name
+	# Fall back to script resource filename
+	var script = obj.get_script()
+	if script != null and script.resource_path != "":
+		var path = str(script.resource_path)
+		var filename = path.get_file().get_basename()
+		if filename != "":
+			return filename
+	# Final fallback: engine class
+	return str(obj.get_class())
+
+
+func _classify_object(type_name: String) -> String:
+	if type_name in OBJECT_CATEGORY_MAP:
+		return OBJECT_CATEGORY_MAP[type_name]
+	return "unknown"
 
 
 func _sort_objects(a: Dictionary, b: Dictionary) -> bool:

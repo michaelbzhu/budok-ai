@@ -440,6 +440,52 @@ class HelloAck(ProtocolModel):
         )
 
 
+MAX_HISTORY_ENTRIES = 10
+
+
+OBJECT_CATEGORY_MAP: dict[str, str] = {
+    "Bullet": "projectile",
+    "Arrow": "projectile",
+    "StickyBomb": "projectile",
+    "Shuriken": "projectile",
+    "LoicBeam": "projectile",
+    "Zap": "projectile",
+    "Fireball": "projectile",
+    "WindSlash": "projectile",
+    "Geyser": "install",
+    "Storm": "install",
+    "Trap": "install",
+    "Mine": "install",
+    "Shield": "effect",
+    "Aura": "effect",
+}
+
+
+def classify_object_type(raw_type: str) -> str:
+    """Map a raw object type to a gameplay-meaningful category."""
+    return OBJECT_CATEGORY_MAP.get(raw_type, "unknown")
+
+
+@dataclass(frozen=True, slots=True)
+class HistoryEntry(ProtocolModel):
+    turn_id: int
+    player_id: str
+    action: str
+    was_fallback: bool = False
+
+    @classmethod
+    def from_dict(cls, raw: object, *, context: str) -> "HistoryEntry":
+        mapping = _require_mapping(raw, context=context)
+        return cls(
+            turn_id=_require_integer(mapping.get("turn_id"), context=f"{context}.turn_id"),
+            player_id=_require_string(mapping.get("player_id"), context=f"{context}.player_id"),
+            action=_require_string(mapping.get("action"), context=f"{context}.action"),
+            was_fallback=_require_bool(
+                mapping.get("was_fallback", False), context=f"{context}.was_fallback"
+            ),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class FighterObservation(ProtocolModel):
     id: str
@@ -453,8 +499,17 @@ class FighterObservation(ProtocolModel):
     facing: str
     current_state: str
     combo_count: int
-    hitstun: int
+    blockstun: int
     hitlag: int
+    state_interruptable: bool
+    can_feint: bool
+    grounded: bool
+    air_actions_remaining: int | None = None
+    feints_remaining: int | None = None
+    initiative: bool | None = None
+    sadness: int | None = None
+    wakeup_throw_immune: bool | None = None
+    combo_proration: float | None = None
     character_data: JsonObject | None = None
 
     @classmethod
@@ -479,8 +534,38 @@ class FighterObservation(ProtocolModel):
                 mapping.get("combo_count"),
                 context=f"{context}.combo_count",
             ),
-            hitstun=_require_integer(mapping.get("hitstun"), context=f"{context}.hitstun"),
+            blockstun=_require_integer(mapping.get("blockstun"), context=f"{context}.blockstun"),
             hitlag=_require_integer(mapping.get("hitlag"), context=f"{context}.hitlag"),
+            state_interruptable=_require_bool(
+                mapping.get("state_interruptable"),
+                context=f"{context}.state_interruptable",
+            ),
+            can_feint=_require_bool(mapping.get("can_feint"), context=f"{context}.can_feint"),
+            grounded=_require_bool(mapping.get("grounded"), context=f"{context}.grounded"),
+            air_actions_remaining=_optional_integer(
+                mapping.get("air_actions_remaining"),
+                context=f"{context}.air_actions_remaining",
+            ),
+            feints_remaining=_optional_integer(
+                mapping.get("feints_remaining"),
+                context=f"{context}.feints_remaining",
+            ),
+            initiative=(
+                _require_bool(initiative_raw, context=f"{context}.initiative")
+                if (initiative_raw := mapping.get("initiative")) is not None
+                else None
+            ),
+            sadness=_optional_integer(mapping.get("sadness"), context=f"{context}.sadness"),
+            wakeup_throw_immune=(
+                _require_bool(wti_raw, context=f"{context}.wakeup_throw_immune")
+                if (wti_raw := mapping.get("wakeup_throw_immune")) is not None
+                else None
+            ),
+            combo_proration=(
+                _require_number(cp_raw, context=f"{context}.combo_proration")
+                if (cp_raw := mapping.get("combo_proration")) is not None
+                else None
+            ),
             character_data=(
                 _coerce_str_dict(raw_character_data, context=f"{context}.character_data")
                 if raw_character_data is not None
@@ -497,7 +582,7 @@ class Observation(ProtocolModel):
     fighters: tuple[FighterObservation, ...]
     objects: tuple[JsonObject, ...]
     stage: JsonObject
-    history: tuple[JsonObject, ...]
+    history: tuple[HistoryEntry, ...]
 
     @classmethod
     def from_dict(cls, raw: object, *, context: str = "observation") -> "Observation":
@@ -522,7 +607,7 @@ class Observation(ProtocolModel):
             ),
             stage=_coerce_str_dict(mapping.get("stage"), context=f"{context}.stage"),
             history=tuple(
-                _coerce_str_dict(item, context=f"{context}.history[{index}]")
+                HistoryEntry.from_dict(item, context=f"{context}.history[{index}]")
                 for index, item in enumerate(history_raw)
             ),
         )

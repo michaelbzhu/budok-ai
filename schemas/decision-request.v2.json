@@ -87,8 +87,11 @@
               "facing",
               "current_state",
               "combo_count",
-              "hitstun",
-              "hitlag"
+              "blockstun",
+              "hitlag",
+              "state_interruptable",
+              "can_feint",
+              "grounded"
             ],
             "properties": {
               "id": {
@@ -132,13 +135,43 @@
                 "type": "integer",
                 "minimum": 0
               },
-              "hitstun": {
+              "blockstun": {
                 "type": "integer",
                 "minimum": 0
               },
               "hitlag": {
                 "type": "integer",
                 "minimum": 0
+              },
+              "state_interruptable": {
+                "type": "boolean"
+              },
+              "can_feint": {
+                "type": "boolean"
+              },
+              "grounded": {
+                "type": "boolean"
+              },
+              "air_actions_remaining": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "feints_remaining": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "initiative": {
+                "type": "boolean"
+              },
+              "sadness": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "wakeup_throw_immune": {
+                "type": "boolean"
+              },
+              "combo_proration": {
+                "type": "number"
               },
               "character_data": {
                 "type": "object",
@@ -150,7 +183,25 @@
         "objects": {
           "type": "array",
           "items": {
-            "type": "object"
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["type", "position"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "minLength": 1
+              },
+              "category": {
+                "type": "string",
+                "enum": ["projectile", "install", "effect", "hazard", "unknown"]
+              },
+              "owner": {
+                "type": "string"
+              },
+              "position": {
+                "$ref": "#/$defs/vector2"
+              }
+            }
           }
         },
         "stage": {
@@ -158,8 +209,9 @@
         },
         "history": {
           "type": "array",
+          "maxItems": 10,
           "items": {
-            "type": "object"
+            "$ref": "#/$defs/history_entry"
           }
         }
       }
@@ -274,6 +326,28 @@
         },
         "y": {
           "type": "number"
+        }
+      }
+    },
+    "history_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["turn_id", "player_id", "action"],
+      "properties": {
+        "turn_id": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "player_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "was_fallback": {
+          "type": "boolean"
         }
       }
     },
