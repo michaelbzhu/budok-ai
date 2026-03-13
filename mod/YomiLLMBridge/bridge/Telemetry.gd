@@ -1,4 +1,4 @@
-extends RefCounted
+extends Reference
 
 # Emits auditable lifecycle events around request, apply, fallback, and match end.
 # Events are sent to the daemon via the bridge client as protocol event envelopes.

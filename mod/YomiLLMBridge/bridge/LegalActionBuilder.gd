@@ -1,4 +1,4 @@
-extends RefCounted
+extends Reference
 
 # Reads the action-button UI state to enumerate all legal actions for a fighter.
 

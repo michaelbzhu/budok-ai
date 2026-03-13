@@ -120,19 +120,22 @@ def test_output_schema_includes_prediction_support() -> None:
 
 def test_rendered_prompt_includes_structured_payload_spec() -> None:
     """Structured payload specs must appear verbatim in the rendered Legal Actions section."""
-    payload_spec = cast(Any, {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["angle"],
-        "properties": {
-            "angle": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 360,
-                "semantic_hint": "aim_direction",
-            }
+    payload_spec = cast(
+        Any,
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["angle"],
+            "properties": {
+                "angle": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 360,
+                    "semantic_hint": "aim_direction",
+                }
+            },
         },
-    })
+    )
     request = build_request(
         (build_action("aim_shot", payload_spec=payload_spec, damage=60.0),)
     )
@@ -146,16 +149,19 @@ def test_rendered_prompt_includes_structured_payload_spec() -> None:
 
 def test_rendered_prompt_includes_prediction_spec_for_capable_action() -> None:
     """Actions with prediction support must have prediction_spec visible in the prompt."""
-    prediction_spec = cast(Any, {
-        "type": "object",
-        "additionalProperties": False,
-        "required": ["horizon"],
-        "properties": {
-            "horizon": {"type": "integer", "minimum": 1, "maximum": 3},
-            "opponent_action": {"type": "string"},
-            "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+    prediction_spec = cast(
+        Any,
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["horizon"],
+            "properties": {
+                "horizon": {"type": "integer", "minimum": 1, "maximum": 3},
+                "opponent_action": {"type": "string"},
+                "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+            },
         },
-    })
+    )
     request = build_request(
         (
             build_action(

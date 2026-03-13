@@ -1,4 +1,4 @@
-extends RefCounted
+extends Reference
 
 # Chooses legal fallback actions for timeout, disconnect, or invalid responses.
 # Mirrors daemon-side fallback logic in daemon/src/yomi_daemon/fallback.py.

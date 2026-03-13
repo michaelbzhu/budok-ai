@@ -1,4 +1,4 @@
-extends RefCounted
+extends Reference
 
 const CURRENT_PROTOCOL_VERSION := "v2"
 

@@ -95,6 +95,73 @@ The benchmark prints a conformance table showing p50/p95/p99 latency and fallbac
 
 `metrics.json` in each run directory tracks per-match latency statistics and fallback counts. Use it to identify regressions after code changes.
 
+## Live local workflow
+
+Run a complete local match from mod packaging through artifact collection.
+
+### 1. Package the mod
+
+```bash
+scripts/package_mod.sh
+```
+
+This creates `dist/YomiLLMBridge.zip` containing the mod directory tree.
+
+### 2. Install the mod
+
+```bash
+scripts/install_mod.sh --game-dir /path/to/yomi-hustle
+```
+
+Point `--game-dir` to the directory containing the YOMI Hustle executable. The script copies the mod zip into `<game-dir>/mods/` and extracts it.
+
+### 3. Start a live match
+
+```bash
+scripts/run_live_match.sh --game-dir /path/to/yomi-hustle
+```
+
+This starts the daemon, verifies prerequisites, and waits for the game to connect. Launch YOMI Hustle with the mod loader enabled; the mod auto-connects to the daemon on `127.0.0.1:8765`.
+
+For provider-backed policies:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... scripts/run_live_match.sh \
+  --p1-policy anthropic/claude --p2-policy baseline/random
+```
+
+When the match ends, the daemon writes artifacts to `runs/<timestamp>_<match_id>/` and prints a result summary.
+
+### 4. Verify artifacts
+
+After a completed match, the run directory contains:
+
+- `manifest.json` — config snapshot and seed
+- `events.jsonl` — lifecycle events (MatchStarted, TurnRequested, DecisionReceived, etc.)
+- `decisions.jsonl` — per-turn request/response pairs
+- `prompts.jsonl` — prompt traces (when logging.prompts is enabled)
+- `metrics.json` — latency, fallback rate, token usage
+- `result.json` — winner, end reason, turn count, status
+- `replay_index.json` — per-turn pointers into decisions and prompts
+- `stderr.log` — error output
+
+### Prerequisites
+
+- `uv` installed
+- YOMI Hustle (Steam build `16151810`) installed locally
+- The game's mod loader must be set up to load mods from `<game-dir>/mods/`
+- For provider-backed policies, set the relevant API key environment variables (see `.env.example`)
+
+### Failure modes
+
+The workflow surfaces clear errors for:
+
+- Missing `uv`
+- Missing mod zip (run `scripts/package_mod.sh` first)
+- Invalid or missing game directory
+- Missing mod installation
+- Missing provider API keys
+
 ## Reproducibility
 
 Baseline (non-provider) runs are fully deterministic given the same inputs:

@@ -1,4 +1,4 @@
-extends RefCounted
+extends Reference
 
 # Validates incoming action decisions against the pending request and legal action set.
 # Mirrors daemon-side validation in daemon/src/yomi_daemon/validation.py.

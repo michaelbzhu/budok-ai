@@ -1,4 +1,4 @@
-extends RefCounted
+extends Reference
 
 # Pure data extraction from live game state into a deterministic observation dictionary.
 # No side effects. Always emits p1 before p2 for stability.

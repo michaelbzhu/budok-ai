@@ -11,3 +11,4 @@ htmlcov/
 .cache/
 runs/*
 !runs/.gitkeep
+dist/

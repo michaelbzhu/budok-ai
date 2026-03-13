@@ -149,13 +149,17 @@ def test_server_decision_path_writes_decision_artifacts() -> None:
                 ack = parse_envelope(json.loads(ack_raw))
                 assert ack.type is MessageType.HELLO_ACK
 
-                await ws.send(json.dumps(_build_decision_request_envelope(match_id=match_id)))
+                await ws.send(
+                    json.dumps(_build_decision_request_envelope(match_id=match_id))
+                )
                 decision_raw = await ws.recv()
                 assert isinstance(decision_raw, str)
                 decision_envelope = parse_envelope(json.loads(decision_raw))
                 assert decision_envelope.type is MessageType.ACTION_DECISION
 
-                await ws.send(json.dumps(_build_match_ended_envelope(match_id=match_id)))
+                await ws.send(
+                    json.dumps(_build_match_ended_envelope(match_id=match_id))
+                )
         finally:
             await server.stop()
 
@@ -191,10 +195,14 @@ def test_server_decision_path_persists_events_for_turn_lifecycle() -> None:
                 await ws.send(json.dumps(_build_hello_envelope()))
                 await ws.recv()  # hello_ack
 
-                await ws.send(json.dumps(_build_decision_request_envelope(match_id=match_id)))
+                await ws.send(
+                    json.dumps(_build_decision_request_envelope(match_id=match_id))
+                )
                 await ws.recv()  # action_decision
 
-                await ws.send(json.dumps(_build_match_ended_envelope(match_id=match_id)))
+                await ws.send(
+                    json.dumps(_build_match_ended_envelope(match_id=match_id))
+                )
         finally:
             await server.stop()
 
@@ -205,7 +213,9 @@ def test_server_decision_path_persists_events_for_turn_lifecycle() -> None:
         assert match_dir is not None, f"No artifact dir found for {match_id}"
 
         events = _load_jsonl(match_dir / "events.jsonl")
-        event_names = [cast(dict[str, object], e["payload"]).get("event") for e in events]
+        event_names = [
+            cast(dict[str, object], e["payload"]).get("event") for e in events
+        ]
         assert "MatchStarted" in event_names
         assert "TurnRequested" in event_names
         assert "DecisionReceived" in event_names
