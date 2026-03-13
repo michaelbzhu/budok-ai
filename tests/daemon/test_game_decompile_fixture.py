@@ -33,6 +33,9 @@ def test_supported_build_fixture_records_confirmed_game_hooks() -> None:
         "P1ActionButtons",
         "P2ActionButtons",
     ]
+    assert fixture["hooks"]["action_application"]["method"] == (
+        "on_action_selected(action, data, extra)"
+    )
     assert fixture["hooks"]["action_application"]["queued_fields"] == [
         "queued_action",
         "queued_data",

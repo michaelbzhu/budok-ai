@@ -381,11 +381,13 @@ class TestActionApplication:
         }
         result = apply_decision(payload)
         assert result["applied"] is True
+        assert result["apply_path"] == "queued_fields"
         assert result["queued_action"] == "Jab"
         assert result["queued_data"] is None
         assert result["queued_extra"]["di"] == {"x": 10, "y": -5}
         assert result["queued_extra"]["feint"] is False
         assert result["queued_extra"]["reverse"] is False
+        assert result["queued_extra"]["prediction"] is None
 
     def test_apply_with_data(self) -> None:
         payload = {
@@ -424,6 +426,51 @@ class TestActionApplication:
         assert result["queued_extra"]["di"]["x"] == 50
         assert result["queued_extra"]["di"]["y"] == -25
         assert result["queued_extra"]["feint"] is True
+
+    def test_apply_prefers_native_method_when_available(self) -> None:
+        class MockFighter:
+            def __init__(self) -> None:
+                self.queued_action = ""
+                self.queued_data = None
+                self.queued_extra = None
+                self.ready_state = False
+                self.commit_count = 0
+
+            def on_action_selected(
+                self, action: str, data: dict | None, extra: dict | None
+            ) -> None:
+                self.queued_action = action
+                self.queued_data = data
+                self.queued_extra = extra
+                self.ready_state = True
+                self.commit_count += 1
+
+        payload = {
+            "action": "Slash",
+            "data": {"target": "enemy"},
+            "extra": {
+                "di": {"x": 5, "y": -2},
+                "feint": False,
+                "reverse": True,
+                "prediction": {"horizon": 2},
+            },
+        }
+        fighter = MockFighter()
+
+        result = apply_decision(payload, fighter)
+
+        assert result["applied"] is True
+        assert result["apply_path"] == "native_method"
+        assert fighter.ready_state is True
+        assert fighter.commit_count == 1
+        assert fighter.queued_action == "Slash"
+        assert fighter.queued_data == {"target": "enemy"}
+        assert fighter.queued_extra == {
+            "di": {"x": 5, "y": -2},
+            "feint": False,
+            "reverse": True,
+            "prediction": {"horizon": 2},
+        }
 
 
 # ==================== Telemetry Tests ====================

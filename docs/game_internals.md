@@ -92,9 +92,11 @@ Observed pattern from `_AIOpponents`:
 
 Implication for this repository:
 
-- [`ActionApplier.gd`](../mod/YomiLLMBridge/bridge/ActionApplier.gd) should inject decisions by mutating the same queued fields the native UI uses.
+- The supported-build decompile fixture confirms the fighter-side action-application hook is `characters/BaseChar.gd::on_action_selected(action, data, extra)`.
+- [`ActionApplier.gd`](../mod/YomiLLMBridge/bridge/ActionApplier.gd) should prefer calling that native fighter hook so ready-state changes and downstream commit behavior stay on the game's own path.
+- Direct `queued_*` mutation is retained only as a compatibility fallback when the native hook is unavailable in a harness.
 - [`DecisionValidator.gd`](../mod/YomiLLMBridge/bridge/DecisionValidator.gd) must run before those writes and must reject stale or illegal payloads.
-- `TurnHook.gd` should still be responsible for triggering whatever native "lock in" path normally follows a human selection. `_AIOpponents` suggests the queue write occurs before the engine continues the turn flow.
+- `TurnHook.gd` should still be responsible for feeding the current fighter into `ActionApplier.gd`; `ActionApplier.gd` owns the final native call that locks in the choice.
 
 Fields to preserve in the bridge payload:
 
@@ -110,7 +112,7 @@ Validation steps after decompile:
 
 1. Confirm the signal `action_selected` still exists on the player object.
 2. Confirm queued fields are still the native source of truth before turn resolution.
-3. Locate the exact method or scene event that finalizes the queued choice after the write.
+3. Confirm `on_action_selected(action, data, extra)` remains the authoritative fighter method that finalizes the queued choice.
 
 ### 3. Legal Action Enumeration
 
@@ -203,7 +205,7 @@ File ownership for later work units should be:
 - [`ObservationBuilder.gd`](../mod/YomiLLMBridge/bridge/ObservationBuilder.gd): serialize deterministic live state only
 - [`LegalActionBuilder.gd`](../mod/YomiLLMBridge/bridge/LegalActionBuilder.gd): enumerate visible legal actions plus move-specific payload constraints
 - [`DecisionValidator.gd`](../mod/YomiLLMBridge/bridge/DecisionValidator.gd): verify `match_id`, `turn_id`, schema shape, action legality, and extra legality
-- [`ActionApplier.gd`](../mod/YomiLLMBridge/bridge/ActionApplier.gd): write queued fields and trigger the native lock-in path
+- [`ActionApplier.gd`](../mod/YomiLLMBridge/bridge/ActionApplier.gd): call `on_action_selected(action, data, extra)` when available, then fall back to direct queued-field writes only for compatibility harnesses
 - [`FallbackHandler.gd`](../mod/YomiLLMBridge/bridge/FallbackHandler.gd): choose legal fallback actions for timeout, disconnect, or invalid responses
 - [`Telemetry.gd`](../mod/YomiLLMBridge/bridge/Telemetry.gd): emit auditable lifecycle events around request, apply, fallback, and match end
 

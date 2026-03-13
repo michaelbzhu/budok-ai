@@ -56,6 +56,7 @@ Godot bridge smoke run:
 ```bash
 uv run --project daemon yomi-daemon
 godot3 --no-window --path mod --script res://BridgeHandshakeSmoke.gd
+godot3 --no-window --path mod --script res://BridgeActionApplySmoke.gd
 ```
 
 Daemon quality gates:

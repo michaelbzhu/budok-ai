@@ -364,21 +364,39 @@ def _select_safe_action(legal_actions: list[dict[str, Any]]) -> dict[str, Any]:
 # --- Action Application ---
 
 
-def apply_decision(decision_payload: dict[str, Any]) -> dict[str, Any]:
+def apply_decision(
+    decision_payload: dict[str, Any], fighter: Any | None = None
+) -> dict[str, Any]:
     """Resolve the fields that would be written to a fighter node.
 
-    Returns a result dict with the resolved queued_action, queued_data, queued_extra.
+    When a fighter exposes the native `on_action_selected` hook, prefer that path
+    so ready-state side effects match the in-engine contract.
     """
     action_name = str(decision_payload.get("action", ""))
     if not action_name:
         return {"applied": False, "error": "empty action name"}
 
+    queued_data = _resolve_queued_data(decision_payload.get("data"))
+    queued_extra = _resolve_queued_extra(decision_payload.get("extra"))
+
+    if fighter is not None and hasattr(fighter, "on_action_selected"):
+        fighter.on_action_selected(action_name, queued_data, queued_extra)
+        return {
+            "applied": True,
+            "action": action_name,
+            "apply_path": "native_method",
+            "queued_action": getattr(fighter, "queued_action", action_name),
+            "queued_data": getattr(fighter, "queued_data", queued_data),
+            "queued_extra": getattr(fighter, "queued_extra", queued_extra),
+        }
+
     return {
         "applied": True,
         "action": action_name,
+        "apply_path": "queued_fields",
         "queued_action": action_name,
-        "queued_data": _resolve_queued_data(decision_payload.get("data")),
-        "queued_extra": _resolve_queued_extra(decision_payload.get("extra")),
+        "queued_data": queued_data,
+        "queued_extra": queued_extra,
     }
 
 
