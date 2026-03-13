@@ -18,7 +18,7 @@ from yomi_daemon.adapters.base import PolicyAdapter, build_player_policy_adapter
 from yomi_daemon.ids import SessionIdGenerator
 from yomi_daemon.manifest import build_match_manifest
 from yomi_daemon.match import MatchSession
-from yomi_daemon.orchestrator import resolve_policy_decision
+from yomi_daemon.orchestrator import resolve_adapter_decision
 from yomi_daemon.protocol import (
     ActionDecision,
     ConfigPayload,
@@ -371,43 +371,32 @@ class DaemonServer:
             ).to_dict()
         )
 
-        # Resolve decision via orchestrator
-        orchestrated = await resolve_policy_decision(
+        # Resolve decision via traced adapter path (persists prompt + decision artifacts)
+        result = await resolve_adapter_decision(
             request,
-            decision_provider=adapter.decide,
-            fallback_mode=runtime_config.fallback_mode,
-            last_valid_decision=last_valid.get(player_id),
-            timeout_ms=runtime_config.decision_timeout_ms,
+            adapter=adapter,
+            artifact_writer=writer,
+            logging_config=runtime_config.logging,
         )
 
-        decision = orchestrated.decision
-
-        # Write decision artifact
-        writer.append_decision(
-            request_payload=request,
-            decision_payload=decision,
-        )
+        decision = result.decision
+        used_fallback = decision.fallback_reason is not None
 
         # Track last valid for fallback
-        if not orchestrated.used_fallback:
+        if not used_fallback:
             last_valid[player_id] = decision
 
         # Emit telemetry event
-        if orchestrated.used_fallback:
+        if used_fallback:
             writer.append_event(
                 Event(
                     match_id=request.match_id,
                     event=EventName.DECISION_FALLBACK,
                     turn_id=request.turn_id,
                     player_id=player_id,
-                    fallback_reason=orchestrated.fallback_reason,
+                    fallback_reason=decision.fallback_reason,
                     latency_ms=decision.latency_ms,
                     details={
-                        "fallback_strategy": (
-                            orchestrated.fallback_strategy.value
-                            if orchestrated.fallback_strategy is not None
-                            else None
-                        ),
                         "policy_id": adapter.id,
                     },
                 ).to_dict()
@@ -442,7 +431,7 @@ class DaemonServer:
             request.turn_id,
             player_id,
             decision.action,
-            orchestrated.used_fallback,
+            used_fallback,
         )
 
     async def _perform_handshake(

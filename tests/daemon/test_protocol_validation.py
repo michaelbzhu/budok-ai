@@ -139,7 +139,14 @@ def build_observation() -> Observation:
                 grounded=True,
             ),
         ),
-        objects=({"type": "Shuriken", "category": "projectile", "owner": "p2", "position": {"x": 5.0, "y": 3.0}},),
+        objects=(
+            {
+                "type": "Shuriken",
+                "category": "projectile",
+                "owner": "p2",
+                "position": {"x": 5.0, "y": 3.0},
+            },
+        ),
         stage={"id": "training_room"},
         history=(HistoryEntry(turn_id=6, player_id="p2", action="jump"),),
     )
