@@ -47,8 +47,8 @@ def test_mod_default_config_exposes_local_bridge_settings() -> None:
         "connect_on_ready": True,
     }
     assert config["protocol"] == {
-        "schema_version": "v1",
-        "supported_versions": ["v1"],
+        "schema_version": "v2",
+        "supported_versions": ["v2"],
     }
     assert config["timeout_profile"] == "strict_local"
     assert config["decision_timeout_ms"] == 2500
@@ -66,10 +66,10 @@ def test_bridge_harness_builds_schema_valid_hello_from_mod_assets() -> None:
     )
 
     assert envelope["type"] == MessageType.HELLO.value
-    assert envelope["version"] == "v1"
+    assert envelope["version"] == "v2"
     assert envelope["payload"]["mod_version"] == "0.0.1"
-    assert envelope["payload"]["schema_version"] == "v1"
-    assert envelope["payload"]["supported_protocol_versions"] == ["v1"]
+    assert envelope["payload"]["schema_version"] == "v2"
+    assert envelope["payload"]["supported_protocol_versions"] == ["v2"]
 
 
 def test_bridge_harness_completes_handshake_against_daemon_server() -> None:

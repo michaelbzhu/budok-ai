@@ -38,7 +38,7 @@ def _make_legal_action(
         "action": action,
         "label": label or action,
         "payload_spec": payload_spec or {},
-        "supports": {"di": di, "feint": feint, "reverse": reverse},
+        "supports": {"di": di, "feint": feint, "reverse": reverse, "prediction": False},
     }
     if startup_frames is not None:
         result["startup_frames"] = startup_frames
@@ -84,19 +84,19 @@ def _make_decision(
     di: dict | None = None,
     feint: bool = False,
     reverse: bool = False,
-    enveloped: bool = False,
+    enveloped: bool = True,
 ) -> dict:
     payload = {
         "match_id": request["match_id"],
         "turn_id": request["turn_id"],
         "action": action,
         "data": data,
-        "extra": {"di": di, "feint": feint, "reverse": reverse},
+        "extra": {"di": di, "feint": feint, "reverse": reverse, "prediction": None},
     }
     if enveloped:
         return {
             "type": "action_decision",
-            "version": "v1",
+            "version": "v2",
             "ts": "2026-01-01T00:00:00Z",
             "payload": payload,
         }
@@ -109,26 +109,26 @@ def _make_decision(
 class TestDecisionValidation:
     """Validation tests for stale turn_id, wrong match_id, unsupported extras, illegal actions."""
 
-    def test_valid_bare_decision(self) -> None:
+    def test_valid_enveloped_decision(self) -> None:
         request = _make_request()
         decision = _make_decision(request, "Jab")
         assert validate_decision(decision, request) == ""
 
-    def test_valid_enveloped_decision(self) -> None:
+    def test_bare_decision_is_rejected(self) -> None:
         request = _make_request()
-        decision = _make_decision(request, "Jab", enveloped=True)
-        assert validate_decision(decision, request) == ""
+        decision = _make_decision(request, "Jab", enveloped=False)
+        assert validate_decision(decision, request) == "malformed_output"
 
     def test_wrong_match_id_returns_stale(self) -> None:
         request = _make_request()
         decision = _make_decision(request, "Jab")
-        decision["match_id"] = "wrong-match-id"
+        decision["payload"]["match_id"] = "wrong-match-id"
         assert validate_decision(decision, request) == "stale_response"
 
     def test_wrong_turn_id_returns_stale(self) -> None:
         request = _make_request(turn_id=5)
         decision = _make_decision(request, "Jab")
-        decision["turn_id"] = 3
+        decision["payload"]["turn_id"] = 3
         assert validate_decision(decision, request) == "stale_response"
 
     def test_empty_action_returns_malformed(self) -> None:
@@ -139,19 +139,25 @@ class TestDecisionValidation:
     def test_missing_extra_returns_malformed(self) -> None:
         request = _make_request()
         decision = _make_decision(request, "Jab")
-        del decision["extra"]
+        del decision["payload"]["extra"]
         assert validate_decision(decision, request) == "malformed_output"
 
     def test_extra_missing_feint_returns_malformed(self) -> None:
         request = _make_request()
         decision = _make_decision(request, "Jab")
-        del decision["extra"]["feint"]
+        del decision["payload"]["extra"]["feint"]
         assert validate_decision(decision, request) == "malformed_output"
 
     def test_extra_missing_reverse_returns_malformed(self) -> None:
         request = _make_request()
         decision = _make_decision(request, "Jab")
-        del decision["extra"]["reverse"]
+        del decision["payload"]["extra"]["reverse"]
+        assert validate_decision(decision, request) == "malformed_output"
+
+    def test_extra_missing_prediction_returns_malformed(self) -> None:
+        request = _make_request()
+        decision = _make_decision(request, "Jab")
+        del decision["payload"]["extra"]["prediction"]
         assert validate_decision(decision, request) == "malformed_output"
 
     def test_illegal_action_name(self) -> None:
@@ -211,7 +217,7 @@ class TestDecisionValidation:
 
     def test_enveloped_missing_payload_malformed(self) -> None:
         request = _make_request()
-        decision = {"type": "action_decision", "version": "v1", "ts": "..."}
+        decision = {"type": "action_decision", "version": "v2", "ts": "..."}
         assert validate_decision(decision, request) == "malformed_output"
 
     def test_data_with_payload_spec_present(self) -> None:
@@ -230,7 +236,7 @@ class TestIsReplayable:
         request = _make_request()
         prior = {
             "action": "Jab",
-            "extra": {"di": None, "feint": False, "reverse": False},
+            "extra": {"di": None, "feint": False, "reverse": False, "prediction": None},
         }
         assert is_replayable(prior, request) is True
 
@@ -238,7 +244,7 @@ class TestIsReplayable:
         request = _make_request()
         prior = {
             "action": "HeavySlash",
-            "extra": {"di": None, "feint": False, "reverse": False},
+            "extra": {"di": None, "feint": False, "reverse": False, "prediction": None},
         }
         assert is_replayable(prior, request) is False
 
@@ -247,7 +253,7 @@ class TestIsReplayable:
         # Jab doesn't support feint
         prior = {
             "action": "Jab",
-            "extra": {"di": None, "feint": True, "reverse": False},
+            "extra": {"di": None, "feint": True, "reverse": False, "prediction": None},
         }
         assert is_replayable(prior, request) is False
 
@@ -366,7 +372,12 @@ class TestActionApplication:
         payload = {
             "action": "Jab",
             "data": None,
-            "extra": {"di": {"x": 10, "y": -5}, "feint": False, "reverse": False},
+            "extra": {
+                "di": {"x": 10, "y": -5},
+                "feint": False,
+                "reverse": False,
+                "prediction": None,
+            },
         }
         result = apply_decision(payload)
         assert result["applied"] is True
@@ -380,7 +391,7 @@ class TestActionApplication:
         payload = {
             "action": "Special",
             "data": {"target": "enemy"},
-            "extra": {"di": None, "feint": False, "reverse": False},
+            "extra": {"di": None, "feint": False, "reverse": False, "prediction": None},
         }
         result = apply_decision(payload)
         assert result["applied"] is True
@@ -402,7 +413,12 @@ class TestActionApplication:
         payload = {
             "action": "Jab",
             "data": None,
-            "extra": {"di": {"x": 50.0, "y": -25.0}, "feint": True, "reverse": False},
+            "extra": {
+                "di": {"x": 50.0, "y": -25.0},
+                "feint": True,
+                "reverse": False,
+                "prediction": None,
+            },
         }
         result = apply_decision(payload)
         assert result["queued_extra"]["di"]["x"] == 50
@@ -425,7 +441,7 @@ class TestTelemetryEvents:
             details={"state_hash": "abc", "legal_actions_hash": "def"},
         )
         assert envelope["type"] == "event"
-        assert envelope["version"] == "v1"
+        assert envelope["version"] == "v2"
         assert envelope["payload"]["match_id"] == "match-abc"
         assert envelope["payload"]["event"] == "TurnRequested"
         assert envelope["payload"]["turn_id"] == 3
@@ -523,7 +539,7 @@ class TestIntegration:
         """Stale turn_id triggers validation error and fallback."""
         request = _make_request(turn_id=10)
         decision = _make_decision(request, "Jab")
-        decision["turn_id"] = 8  # stale
+        decision["payload"]["turn_id"] = 8  # stale
         error = validate_decision(decision, request)
         assert error == "stale_response"
 
@@ -533,7 +549,7 @@ class TestIntegration:
         decision = _make_decision(request, "Slash", feint=True)
         error = validate_decision(decision, request)
         assert error == ""
-        result = apply_decision(decision)
+        result = apply_decision(decision["payload"])
         assert result["applied"] is True
         assert result["queued_action"] == "Slash"
 
@@ -551,12 +567,18 @@ class TestReliability:
             {"action": "Jab"},  # missing extra
             {"type": "wrong_type", "payload": {}},
             {"type": "action_decision"},  # missing payload
+            {"type": "action_decision", "version": "v1", "payload": {}},
             {"match_id": "x", "turn_id": 1, "action": "Jab", "extra": "not_a_dict"},
             {
                 "match_id": "x",
                 "turn_id": 1,
                 "action": "Jab",
-                "extra": {"di": "bad", "feint": False, "reverse": False},
+                "extra": {
+                    "di": "bad",
+                    "feint": False,
+                    "reverse": False,
+                    "prediction": None,
+                },
             },
         ],
         ids=[
@@ -567,6 +589,7 @@ class TestReliability:
             "missing_extra",
             "wrong_type",
             "missing_payload",
+            "wrong_version",
             "extra_not_dict",
             "di_not_dict",
         ],

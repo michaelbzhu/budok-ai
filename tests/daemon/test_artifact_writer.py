@@ -11,6 +11,7 @@ from yomi_daemon.manifest import build_match_manifest
 from yomi_daemon.match import MatchMetadata
 from yomi_daemon.protocol import (
     ActionDecision,
+    CURRENT_SCHEMA_VERSION,
     DIVector,
     DecisionExtras,
     DecisionRequest,
@@ -58,7 +59,7 @@ def _manifest(match_id: str) -> Any:
         metadata=MatchMetadata(
             game_version="1.9.11",
             mod_version="0.2.0",
-            schema_version="v1",
+            schema_version=CURRENT_SCHEMA_VERSION,
             match_id=match_id,
         ),
         created_at=datetime(2026, 3, 12, 12, 0, tzinfo=UTC),
@@ -121,7 +122,12 @@ def _request(
                 action="slash",
                 label="Slash",
                 payload_spec={"target": {"type": "enemy"}},
-                supports=LegalActionSupports(di=True, feint=False, reverse=True),
+                supports=LegalActionSupports(
+                    di=True,
+                    feint=False,
+                    reverse=True,
+                    prediction=False,
+                ),
                 damage=120.0,
                 startup_frames=5,
                 range=18.5,
@@ -132,7 +138,7 @@ def _request(
         trace_seed=17,
         game_version="1.9.11",
         mod_version="0.2.0",
-        schema_version="v1",
+        schema_version=CURRENT_SCHEMA_VERSION,
         ruleset_id="default-ruleset",
         prompt_version="minimal_v1",
     )
@@ -151,7 +157,12 @@ def _decision(
         turn_id=turn_id,
         action="slash",
         data={"target": "enemy"},
-        extra=DecisionExtras(di=DIVector(x=25, y=-10), feint=False, reverse=True),
+        extra=DecisionExtras(
+            di=DIVector(x=25, y=-10),
+            feint=False,
+            reverse=True,
+            prediction=None,
+        ),
         policy_id="baseline/random",
         latency_ms=latency_ms,
         tokens_in=tokens_in,

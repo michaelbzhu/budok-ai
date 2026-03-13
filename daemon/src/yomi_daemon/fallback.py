@@ -141,6 +141,7 @@ def _default_extras(action: LegalAction) -> DecisionExtras:
         di=DIVector(x=0, y=0) if action.supports.di else None,
         feint=False,
         reverse=False,
+        prediction=None,
     )
 
 

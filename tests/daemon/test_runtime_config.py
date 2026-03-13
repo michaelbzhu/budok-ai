@@ -12,7 +12,13 @@ from yomi_daemon.config import (
 )
 from yomi_daemon.manifest import build_match_manifest
 from yomi_daemon.match import MatchMetadata
-from yomi_daemon.protocol import CharacterSelectionMode, FallbackMode, TimeoutProfile
+from yomi_daemon.protocol import (
+    CURRENT_PROTOCOL_VERSION,
+    CURRENT_SCHEMA_VERSION,
+    CharacterSelectionMode,
+    FallbackMode,
+    TimeoutProfile,
+)
 
 
 def test_load_runtime_config_defaults_and_env_credentials() -> None:
@@ -135,7 +141,7 @@ def test_manifest_generation_pins_required_metadata_fields() -> None:
         metadata=MatchMetadata(
             game_version="1.9.11",
             mod_version="0.2.0",
-            schema_version="v1",
+            schema_version=CURRENT_SCHEMA_VERSION,
             match_id="match-004",
         ),
         created_at=datetime(2026, 3, 12, 12, 0, tzinfo=UTC),
@@ -146,8 +152,8 @@ def test_manifest_generation_pins_required_metadata_fields() -> None:
     assert serialized["match_id"] == "match-004"
     assert serialized["created_at"] == "2026-03-12T12:00:00Z"
     assert serialized["trace_seed"] == 77
-    assert serialized["protocol_version"] == "v1"
-    assert serialized["schema_version"] == "v1"
+    assert serialized["protocol_version"] == CURRENT_PROTOCOL_VERSION.value
+    assert serialized["schema_version"] == CURRENT_SCHEMA_VERSION
     assert serialized["daemon_version"] == "0.0.1"
     assert serialized["prompt_version"] is None
     assert serialized["policy_mapping"] == {

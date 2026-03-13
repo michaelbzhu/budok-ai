@@ -5,8 +5,8 @@
     "connect_on_ready": true
   },
   "protocol": {
-    "schema_version": "v1",
-    "supported_versions": ["v1"]
+    "schema_version": "v2",
+    "supported_versions": ["v2"]
   },
   "game_version": "supported-build-16151810",
   "timeout_profile": "strict_local",

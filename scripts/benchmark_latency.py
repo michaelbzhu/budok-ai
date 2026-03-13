@@ -26,6 +26,7 @@ from yomi_daemon.config import (
     TransportConfig,
 )
 from yomi_daemon.protocol import (
+    CURRENT_SCHEMA_VERSION,
     CURRENT_PROTOCOL_VERSION,
     ActionDecision,
     CharacterSelectionConfig,
@@ -82,7 +83,7 @@ def _hello_envelope() -> dict[str, object]:
         "payload": {
             "game_version": "1.0.0",
             "mod_version": "0.1.0",
-            "schema_version": "v1",
+            "schema_version": CURRENT_SCHEMA_VERSION,
             "supported_protocol_versions": [CURRENT_PROTOCOL_VERSION.value],
         },
     }
@@ -148,13 +149,23 @@ def _decision_request_envelope(
                     "action": "block",
                     "label": "Block",
                     "payload_spec": {},
-                    "supports": {"di": False, "feint": False, "reverse": False},
+                    "supports": {
+                        "di": False,
+                        "feint": False,
+                        "reverse": False,
+                        "prediction": False,
+                    },
                 },
                 {
                     "action": "attack_a",
                     "label": "Attack A",
                     "payload_spec": {},
-                    "supports": {"di": True, "feint": False, "reverse": False},
+                    "supports": {
+                        "di": True,
+                        "feint": False,
+                        "reverse": False,
+                        "prediction": False,
+                    },
                     "damage": 100.0,
                     "startup_frames": 5,
                 },
@@ -162,7 +173,12 @@ def _decision_request_envelope(
                     "action": "move_forward",
                     "label": "Move Forward",
                     "payload_spec": {},
-                    "supports": {"di": False, "feint": False, "reverse": False},
+                    "supports": {
+                        "di": False,
+                        "feint": False,
+                        "reverse": False,
+                        "prediction": False,
+                    },
                 },
             ],
         },

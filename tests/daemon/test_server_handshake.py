@@ -9,6 +9,7 @@ from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosedError
 
 from yomi_daemon.protocol import (
+    CURRENT_SCHEMA_VERSION,
     CURRENT_PROTOCOL_VERSION,
     HelloAck,
     MessageType,
@@ -21,7 +22,7 @@ from yomi_daemon.validation import parse_envelope
 def build_hello_envelope(
     *,
     supported_versions: list[str] | None = None,
-    schema_version: str = "v1",
+    schema_version: str = CURRENT_SCHEMA_VERSION,
 ) -> dict[str, object]:
     return {
         "type": MessageType.HELLO.value,

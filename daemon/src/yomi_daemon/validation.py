@@ -13,6 +13,7 @@ from jsonschema.exceptions import ValidationError, best_match
 
 from yomi_daemon.protocol import (
     ActionDecision,
+    CURRENT_SCHEMA_VERSION,
     CURRENT_PROTOCOL_VERSION,
     DecisionRequest,
     PAYLOAD_TYPE_BY_MESSAGE_TYPE,
@@ -28,15 +29,15 @@ from yomi_daemon.protocol import (
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCHEMA_DIR = REPO_ROOT / "schemas"
 
-ENVELOPE_SCHEMA_FILE = "envelope.json"
+ENVELOPE_SCHEMA_FILE = f"envelope.{CURRENT_SCHEMA_VERSION}.json"
 SCHEMA_FILE_BY_MESSAGE_TYPE: dict[MessageType, str] = {
-    MessageType.HELLO: "hello.v1.json",
-    MessageType.HELLO_ACK: "hello-ack.v1.json",
-    MessageType.DECISION_REQUEST: "decision-request.v1.json",
-    MessageType.ACTION_DECISION: "action-decision.v1.json",
-    MessageType.EVENT: "event.v1.json",
-    MessageType.MATCH_ENDED: "match-ended.v1.json",
-    MessageType.CONFIG: "config.v1.json",
+    MessageType.HELLO: f"hello.{CURRENT_SCHEMA_VERSION}.json",
+    MessageType.HELLO_ACK: f"hello-ack.{CURRENT_SCHEMA_VERSION}.json",
+    MessageType.DECISION_REQUEST: f"decision-request.{CURRENT_SCHEMA_VERSION}.json",
+    MessageType.ACTION_DECISION: f"action-decision.{CURRENT_SCHEMA_VERSION}.json",
+    MessageType.EVENT: f"event.{CURRENT_SCHEMA_VERSION}.json",
+    MessageType.MATCH_ENDED: f"match-ended.{CURRENT_SCHEMA_VERSION}.json",
+    MessageType.CONFIG: f"config.{CURRENT_SCHEMA_VERSION}.json",
 }
 
 
@@ -277,6 +278,12 @@ def _validate_decision_extras(legal_action: LegalAction, decision: ActionDecisio
             f"action {decision.action!r} does not support extra.reverse",
             fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
             location=("extra", "reverse"),
+        )
+    if decision.extra.prediction is not None and not legal_action.supports.prediction:
+        raise DecisionValidationError(
+            f"action {decision.action!r} does not support extra.prediction",
+            fallback_reason=FallbackReason.ILLEGAL_OUTPUT,
+            location=("extra", "prediction"),
         )
 
 

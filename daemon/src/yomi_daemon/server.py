@@ -22,6 +22,7 @@ from yomi_daemon.orchestrator import resolve_policy_decision
 from yomi_daemon.protocol import (
     ActionDecision,
     ConfigPayload,
+    CURRENT_SCHEMA_VERSION,
     DecisionRequest,
     Envelope,
     Event,
@@ -44,7 +45,7 @@ if TYPE_CHECKING:
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
-SUPPORTED_SCHEMA_VERSION = "v1"
+SUPPORTED_SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 
 
 class HandshakeRejectedError(ValueError):

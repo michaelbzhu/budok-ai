@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from pathlib import Path
 
 import pytest
 
@@ -11,6 +12,7 @@ from yomi_daemon.protocol import (
     CharacterSelectionConfig,
     CharacterSelectionMode,
     ConfigPayload,
+    CURRENT_SCHEMA_VERSION,
     CURRENT_PROTOCOL_VERSION,
     DIVector,
     DecisionExtras,
@@ -32,9 +34,10 @@ from yomi_daemon.protocol import (
     PlayerPolicyMapping,
     ProtocolModel,
     ProtocolPayload,
-    ProtocolVersion,
     TimeoutProfile,
     Vector2,
+    canonical_json,
+    canonical_sha256,
 )
 from yomi_daemon.validation import (
     ProtocolValidationError,
@@ -42,6 +45,12 @@ from yomi_daemon.validation import (
     validate_envelope,
     validate_model,
     validate_payload,
+)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+CANONICAL_FIXTURES_PATH = (
+    REPO_ROOT / "tests" / "fixtures" / "protocol" / "canonical_hash_cases.json"
 )
 
 
@@ -66,15 +75,15 @@ def build_hello() -> Hello:
     return Hello(
         game_version="1.0.0",
         mod_version="0.1.0",
-        schema_version="v1",
-        supported_protocol_versions=(ProtocolVersion.V1,),
+        schema_version=CURRENT_SCHEMA_VERSION,
+        supported_protocol_versions=(CURRENT_PROTOCOL_VERSION,),
     )
 
 
 def build_hello_ack() -> HelloAck:
     return HelloAck(
-        accepted_protocol_version=ProtocolVersion.V1,
-        accepted_schema_version="v1",
+        accepted_protocol_version=CURRENT_PROTOCOL_VERSION,
+        accepted_schema_version=CURRENT_SCHEMA_VERSION,
         daemon_version="0.0.1",
         policy_mapping=PlayerPolicyMapping(
             p1="baseline/random", p2="baseline/block_always"
@@ -131,7 +140,10 @@ def build_legal_action() -> LegalAction:
         action="slash",
         label="Slash",
         payload_spec={"target": {"type": "enemy"}},
-        supports=LegalActionSupports(di=True, feint=False, reverse=True),
+        payload_schema={"kind": "object", "fields": {"target": {"type": "string"}}},
+        supports=LegalActionSupports(
+            di=True, feint=False, reverse=True, prediction=False
+        ),
         damage=120.0,
         startup_frames=5,
         range=18.5,
@@ -154,7 +166,7 @@ def build_decision_request() -> DecisionRequest:
         trace_seed=17,
         game_version="1.0.0",
         mod_version="0.1.0",
-        schema_version="v1",
+        schema_version=CURRENT_SCHEMA_VERSION,
         ruleset_id="default-ruleset",
         prompt_version="strategic_v1",
     )
@@ -166,7 +178,12 @@ def build_action_decision() -> ActionDecision:
         turn_id=7,
         action="slash",
         data={"target": "enemy"},
-        extra=DecisionExtras(di=DIVector(x=25, y=-10), feint=False, reverse=True),
+        extra=DecisionExtras(
+            di=DIVector(x=25, y=-10),
+            feint=False,
+            reverse=True,
+            prediction=None,
+        ),
         policy_id="baseline/random",
         latency_ms=123,
         tokens_in=0,
@@ -247,13 +264,13 @@ def test_typed_models_round_trip_through_schema(
             {
                 "game_version": "1.0.0",
                 "mod_version": "0.1.0",
-                "schema_version": "v1",
+                "schema_version": CURRENT_SCHEMA_VERSION,
             },
         ),
         (
             MessageType.HELLO_ACK,
             {
-                "accepted_protocol_version": "v2",
+                "accepted_protocol_version": "v1",
                 "accepted_schema_version": "v1",
                 "daemon_version": "0.0.1",
                 "policy_mapping": {
@@ -273,7 +290,12 @@ def test_typed_models_round_trip_through_schema(
             MessageType.ACTION_DECISION,
             {
                 **build_action_decision().to_dict(),
-                "extra": {"di": {"x": 101, "y": 0}, "feint": False, "reverse": False},
+                "extra": {
+                    "di": {"x": 101, "y": 0},
+                    "feint": False,
+                    "reverse": False,
+                    "prediction": None,
+                },
             },
         ),
         (
@@ -308,7 +330,7 @@ def test_envelope_validation_rejects_mismatched_version() -> None:
     envelope = build_envelope(
         MessageType.DECISION_REQUEST, build_decision_request()
     ).to_dict()
-    envelope["version"] = "v2"
+    envelope["version"] = "v1"
 
     with pytest.raises(ProtocolValidationError, match="version"):
         validate_envelope(envelope)
@@ -335,7 +357,12 @@ def test_action_decision_rejects_malformed_di_vectors(
     bad_di: dict[str, object],
 ) -> None:
     payload = build_action_decision().to_dict()
-    payload["extra"] = {"di": bad_di, "feint": False, "reverse": True}
+    payload["extra"] = {
+        "di": bad_di,
+        "feint": False,
+        "reverse": True,
+        "prediction": None,
+    }
 
     with pytest.raises(ProtocolValidationError, match="di"):
         validate_payload(MessageType.ACTION_DECISION, payload)
@@ -349,6 +376,14 @@ def test_parse_envelope_returns_typed_payload() -> None:
     parsed = parse_envelope(envelope)
 
     assert parsed.type is MessageType.ACTION_DECISION
-    assert parsed.version is ProtocolVersion.V1
+    assert parsed.version is CURRENT_PROTOCOL_VERSION
     assert isinstance(parsed.payload, ActionDecision)
     assert parsed.payload.extra.di == DIVector(x=25, y=-10)
+
+
+def test_canonical_hash_fixtures_match_reference_values() -> None:
+    fixtures = json.loads(CANONICAL_FIXTURES_PATH.read_text(encoding="utf-8"))
+
+    for fixture in fixtures:
+        assert canonical_json(fixture["payload"]) == fixture["canonical_json"]
+        assert canonical_sha256(fixture["payload"]) == fixture["sha256"]

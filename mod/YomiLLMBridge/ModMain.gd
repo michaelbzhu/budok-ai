@@ -2,8 +2,8 @@ extends Node
 
 const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 8765
-const DEFAULT_SCHEMA_VERSION := "v1"
-const DEFAULT_SUPPORTED_VERSIONS := ["v1"]
+const DEFAULT_SCHEMA_VERSION := "v2"
+const DEFAULT_SUPPORTED_VERSIONS := ["v2"]
 const DEFAULT_TIMEOUT_PROFILE := "strict_local"
 const DEFAULT_DECISION_TIMEOUT_MS := 2500
 const DEFAULT_FALLBACK_MODE := "safe_continue"

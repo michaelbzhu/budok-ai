@@ -140,6 +140,7 @@ class BasePolicyAdapter(ABC):
             di=DIVector(x=0, y=0) if action.supports.di else None,
             feint=False,
             reverse=False,
+            prediction=None,
         )
 
     async def decide_with_trace(self, request: DecisionRequest) -> PolicyDecisionResult:

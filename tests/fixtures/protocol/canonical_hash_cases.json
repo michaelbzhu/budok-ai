@@ -1,0 +1,45 @@
+[
+  {
+    "name": "simple_dict",
+    "payload": {
+      "b": 2,
+      "a": 1,
+      "c": [3, 1, 2]
+    },
+    "canonical_json": "{\"a\":1,\"b\":2,\"c\":[3,1,2]}",
+    "sha256": "a8db84e184e1a09f44da4797c27dee857d11332b5b8dae211a5aeb30092e030d"
+  },
+  {
+    "name": "nested_payload",
+    "payload": {
+      "legal_actions": [
+        {
+          "action": "jab",
+          "supports": {
+            "prediction": false,
+            "feint": false,
+            "di": true,
+            "reverse": false
+          }
+        }
+      ],
+      "observation": {
+        "tick": 100,
+        "frame": 12,
+        "fighters": [
+          {
+            "id": "p1",
+            "hp": 920
+          },
+          {
+            "id": "p2",
+            "hp": 870
+          }
+        ],
+        "status": null
+      }
+    },
+    "canonical_json": "{\"legal_actions\":[{\"action\":\"jab\",\"supports\":{\"di\":true,\"feint\":false,\"prediction\":false,\"reverse\":false}}],\"observation\":{\"fighters\":[{\"hp\":920,\"id\":\"p1\"},{\"hp\":870,\"id\":\"p2\"}],\"frame\":12,\"status\":null,\"tick\":100}}",
+    "sha256": "e75604365458f3619a9fa278322bbc0f2524f158bce70cd9925448306c9a8dbc"
+  }
+]

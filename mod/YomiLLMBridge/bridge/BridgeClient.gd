@@ -8,8 +8,8 @@ signal daemon_disconnected(details)
 
 const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 8765
-const DEFAULT_SCHEMA_VERSION := "v1"
-const DEFAULT_SUPPORTED_VERSIONS := ["v1"]
+const DEFAULT_SCHEMA_VERSION := "v2"
+const DEFAULT_SUPPORTED_VERSIONS := ["v2"]
 
 var _socket = WebSocketClient.new()
 var _config = {}
@@ -18,9 +18,11 @@ var _state = "disconnected"
 var _hello_ack = {}
 var _last_error = ""
 var _last_close = {}
+var _protocol_codec = null
 
 
 func _ready() -> void:
+	_protocol_codec = _ensure_protocol_codec()
 	_socket.connect("connection_established", self, "_on_connection_established")
 	_socket.connect("connection_error", self, "_on_connection_error")
 	_socket.connect("connection_closed", self, "_on_connection_closed")
@@ -83,23 +85,19 @@ func build_connection_url() -> String:
 
 
 func build_hello_envelope() -> Dictionary:
+	var protocol_codec = _ensure_protocol_codec()
 	var protocol_config = _config.get("protocol", {})
 	var schema_version = str(protocol_config.get("schema_version", DEFAULT_SCHEMA_VERSION))
 	var supported_versions = _duplicate_string_array(
 		protocol_config.get("supported_versions", DEFAULT_SUPPORTED_VERSIONS)
 	)
 
-	return {
-		"type": "hello",
-		"version": supported_versions[0],
-		"ts": _utc_timestamp(),
-		"payload": {
-			"game_version": str(_metadata.get("game_version", "unknown")),
-			"mod_version": str(_metadata.get("version", "0.0.0")),
-			"schema_version": schema_version,
-			"supported_protocol_versions": supported_versions,
-		},
-	}
+	return protocol_codec.build_envelope("hello", {
+		"game_version": str(_metadata.get("game_version", "unknown")),
+		"mod_version": str(_metadata.get("version", "0.0.0")),
+		"schema_version": schema_version,
+		"supported_protocol_versions": supported_versions,
+	}, supported_versions[0])
 
 
 func get_connection_snapshot() -> Dictionary:
@@ -260,16 +258,10 @@ func transition_to_disconnected(reason: String) -> void:
 	set_process(false)
 
 
-func _utc_timestamp() -> String:
-	var now = OS.get_datetime(true)
-	return "%04d-%02d-%02dT%02d:%02d:%02dZ" % [
-		int(now["year"]),
-		int(now["month"]),
-		int(now["day"]),
-		int(now["hour"]),
-		int(now["minute"]),
-		int(now["second"]),
-	]
+func _ensure_protocol_codec():
+	if _protocol_codec == null:
+		_protocol_codec = load(get_script().resource_path.get_base_dir() + "/ProtocolCodec.gd").new()
+	return _protocol_codec
 
 
 func _duplicate_string_array(raw_value, fallback := DEFAULT_SUPPORTED_VERSIONS) -> Array:

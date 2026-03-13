@@ -18,6 +18,7 @@ from yomi_daemon.manifest import build_match_manifest
 from yomi_daemon.match import MatchMetadata
 from yomi_daemon.orchestrator import resolve_adapter_decision
 from yomi_daemon.protocol import (
+    CURRENT_SCHEMA_VERSION,
     FallbackMode,
     FallbackReason,
     JsonObject,
@@ -137,7 +138,7 @@ def _manifest(match_id: str) -> Any:
         metadata=MatchMetadata(
             game_version="1.9.11",
             mod_version="0.2.0",
-            schema_version="v1",
+            schema_version=CURRENT_SCHEMA_VERSION,
             match_id=match_id,
         ),
         created_at=datetime(2026, 3, 12, 12, 0, tzinfo=UTC),

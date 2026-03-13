@@ -6,12 +6,14 @@ extends RefCounted
 var _bridge_client = null
 var _config = {}
 var _match_id = ""
+var _protocol_codec = null
 
 
 func configure(bridge_client, config: Dictionary, match_id: String) -> void:
 	_bridge_client = bridge_client
 	_config = config
 	_match_id = match_id
+	_protocol_codec = load(get_script().resource_path.get_base_dir() + "/ProtocolCodec.gd").new()
 
 
 func emit_turn_requested(
@@ -131,12 +133,7 @@ func _emit_event(event_name: String, overrides: Dictionary) -> void:
 	for key in overrides:
 		payload[key] = overrides[key]
 
-	var envelope = {
-		"type": "event",
-		"version": "v1",
-		"ts": _utc_timestamp(),
-		"payload": payload,
-	}
+	var envelope = _protocol_codec.build_envelope("event", payload)
 
 	if _bridge_client != null:
 		_bridge_client._send_json_message(envelope)
@@ -147,15 +144,3 @@ func _is_events_enabled() -> bool:
 	if not (logging is Dictionary):
 		return true
 	return bool(logging.get("events", true))
-
-
-func _utc_timestamp() -> String:
-	var now = OS.get_datetime(true)
-	return "%04d-%02d-%02dT%02d:%02d:%02dZ" % [
-		int(now["year"]),
-		int(now["month"]),
-		int(now["day"]),
-		int(now["hour"]),
-		int(now["minute"]),
-		int(now["second"]),
-	]

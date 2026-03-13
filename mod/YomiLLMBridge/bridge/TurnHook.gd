@@ -17,6 +17,7 @@ var _decision_validator = null
 var _action_applier = null
 var _fallback_handler = null
 var _telemetry = null
+var _protocol_codec = null
 
 # Pending requests keyed by "p1_turnid" or "p2_turnid" for correlation
 var _pending_requests = {}
@@ -33,6 +34,7 @@ func attach(bridge_client, config: Dictionary) -> void:
 	_action_applier = load(_get_script_dir() + "/ActionApplier.gd").new()
 	_fallback_handler = load(_get_script_dir() + "/FallbackHandler.gd").new()
 	_telemetry = load(_get_script_dir() + "/Telemetry.gd").new()
+	_protocol_codec = load(_get_script_dir() + "/ProtocolCodec.gd").new()
 
 	# Subscribe to daemon messages and disconnect events
 	_bridge_client.connect("daemon_message", self, "_on_daemon_message")
@@ -76,10 +78,10 @@ func _on_player_actionable() -> void:
 		var observation = _observation_builder.build_observation(_game, fighter)
 		var legal_actions = _legal_action_builder.build_legal_actions(_game, fighter, action_buttons)
 
-		var state_hash = _sha256_of_canonical_json(observation)
-		var legal_actions_hash = _sha256_of_canonical_json(legal_actions)
+		var state_hash = _protocol_codec.sha256_hex(observation)
+		var legal_actions_hash = _protocol_codec.sha256_hex(legal_actions)
 
-		var decision_request = {
+		var decision_request_payload = {
 			"match_id": _match_id,
 			"turn_id": _turn_id,
 			"player_id": player_id,
@@ -90,13 +92,17 @@ func _on_player_actionable() -> void:
 			"observation": observation,
 			"legal_actions": legal_actions,
 		}
+		var decision_request_envelope = _protocol_codec.build_envelope(
+			"decision_request",
+			decision_request_payload
+		)
 
 		# Track pending request for correlation
 		var pending_key = _pending_key(player_id, _turn_id)
-		_pending_requests[pending_key] = decision_request
+		_pending_requests[pending_key] = decision_request_payload
 		_pending_timestamps[pending_key] = OS.get_ticks_msec()
 
-		_bridge_client._send_json_message(decision_request)
+		_bridge_client._send_json_message(decision_request_envelope)
 
 		_telemetry.emit_turn_requested(
 			_turn_id, player_id, state_hash, legal_actions_hash,
@@ -105,17 +111,11 @@ func _on_player_actionable() -> void:
 
 
 func _on_daemon_message(envelope: Dictionary) -> void:
-	# Extract payload from envelope or treat as bare payload
-	var msg_type = str(envelope.get("type", ""))
-	var payload = {}
-	if msg_type == "action_decision" and envelope.has("payload") and envelope["payload"] is Dictionary:
-		payload = envelope["payload"]
-	elif envelope.has("action") and envelope.has("match_id"):
-		# Bare payload (no envelope wrapper)
-		payload = envelope
-	else:
-		# Unknown message type, ignore
+	if str(envelope.get("type", "")) != "action_decision":
 		return
+	if not envelope.has("payload") or not (envelope["payload"] is Dictionary):
+		return
+	var payload: Dictionary = envelope["payload"]
 
 	var player_id = _find_player_for_decision(payload)
 	if player_id == "":
@@ -281,22 +281,6 @@ func _is_fighter_interruptable(fighter) -> bool:
 func _find_action_buttons(player_id: String):
 	var node_name = "P1ActionButtons" if player_id == "p1" else "P2ActionButtons"
 	return get_tree().get_root().find_node(node_name, true, false)
-
-
-func _sha256_of_canonical_json(data) -> String:
-	var json_text = to_json(data)
-	var ctx = HashingContext.new()
-	ctx.start(HashingContext.HASH_SHA256)
-	ctx.update(json_text.to_utf8())
-	var digest = ctx.finish()
-	return _bytes_to_hex(digest)
-
-
-func _bytes_to_hex(bytes: PoolByteArray) -> String:
-	var hex = ""
-	for b in bytes:
-		hex += "%02x" % b
-	return hex
 
 
 func _has_global_game() -> bool:

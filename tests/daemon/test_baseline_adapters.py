@@ -81,7 +81,9 @@ def _action(
         action=action_id,
         label=label,
         payload_spec=payload_spec or {},
-        supports=LegalActionSupports(di=di, feint=feint, reverse=reverse),
+        supports=LegalActionSupports(
+            di=di, feint=feint, reverse=reverse, prediction=False
+        ),
         damage=damage,
         startup_frames=startup_frames,
         range=range,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, fields, is_dataclass
 from enum import StrEnum
@@ -15,6 +17,7 @@ JsonObject: TypeAlias = dict[str, JsonValue]
 
 class ProtocolVersion(StrEnum):
     V1 = "v1"
+    V2 = "v2"
 
 
 class MessageType(StrEnum):
@@ -71,8 +74,20 @@ class PlayerSlot(StrEnum):
     P2 = "p2"
 
 
-SUPPORTED_PROTOCOL_VERSIONS: tuple[ProtocolVersion, ...] = (ProtocolVersion.V1,)
-CURRENT_PROTOCOL_VERSION = ProtocolVersion.V1
+SUPPORTED_PROTOCOL_VERSIONS: tuple[ProtocolVersion, ...] = (ProtocolVersion.V2,)
+CURRENT_PROTOCOL_VERSION = ProtocolVersion.V2
+CURRENT_SCHEMA_VERSION = CURRENT_PROTOCOL_VERSION.value
+
+
+def canonical_json(value: JsonValue | ProtocolModel) -> str:
+    """Serialize protocol payloads with stable key ordering for cross-language hashing."""
+
+    normalized = _serialize(value)
+    return json.dumps(normalized, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+
+
+def canonical_sha256(value: JsonValue | ProtocolModel) -> str:
+    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
 def _serialize(value: object) -> JsonValue:
@@ -490,6 +505,7 @@ class LegalActionSupports(ProtocolModel):
     di: bool
     feint: bool
     reverse: bool
+    prediction: bool = False
 
     @classmethod
     def from_dict(cls, raw: object, *, context: str) -> "LegalActionSupports":
@@ -498,6 +514,10 @@ class LegalActionSupports(ProtocolModel):
             di=_require_bool(mapping.get("di"), context=f"{context}.di"),
             feint=_require_bool(mapping.get("feint"), context=f"{context}.feint"),
             reverse=_require_bool(mapping.get("reverse"), context=f"{context}.reverse"),
+            prediction=_require_bool(
+                mapping.get("prediction", False),
+                context=f"{context}.prediction",
+            ),
         )
 
 
@@ -506,6 +526,7 @@ class LegalAction(ProtocolModel):
     action: str
     payload_spec: JsonObject
     supports: LegalActionSupports
+    payload_schema: JsonObject | None = None
     label: str | None = None
     damage: float | None = None
     startup_frames: int | None = None
@@ -525,6 +546,11 @@ class LegalAction(ProtocolModel):
             supports=LegalActionSupports.from_dict(
                 mapping.get("supports"),
                 context=f"{context}.supports",
+            ),
+            payload_schema=(
+                _coerce_str_dict(payload_schema_raw, context=f"{context}.payload_schema")
+                if (payload_schema_raw := mapping.get("payload_schema")) is not None
+                else None
             ),
             label=_optional_string(mapping.get("label"), context=f"{context}.label"),
             damage=(
@@ -632,6 +658,7 @@ class DecisionExtras(ProtocolModel):
     di: DIVector | None = field(metadata={"serialize_null": True})
     feint: bool
     reverse: bool
+    prediction: JsonObject | None = field(metadata={"serialize_null": True}, default=None)
 
     @classmethod
     def from_dict(cls, raw: object, *, context: str = "extra") -> "DecisionExtras":
@@ -644,6 +671,11 @@ class DecisionExtras(ProtocolModel):
             ),
             feint=_require_bool(mapping.get("feint"), context=f"{context}.feint"),
             reverse=_require_bool(mapping.get("reverse"), context=f"{context}.reverse"),
+            prediction=(
+                _coerce_str_dict(prediction_raw, context=f"{context}.prediction")
+                if (prediction_raw := mapping.get("prediction")) is not None
+                else None
+            ),
         )
 
 

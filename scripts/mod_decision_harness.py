@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 """Python mirror of the mod-side decision validation, fallback, and action application pipeline.
 
 Operates on synthetic decision/request dicts to validate:
@@ -15,7 +17,16 @@ This harness mirrors the GDScript implementations in:
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
 from typing import Any
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DAEMON_SRC = REPO_ROOT / "daemon" / "src"
+if str(DAEMON_SRC) not in sys.path:
+    sys.path.insert(0, str(DAEMON_SRC))
+
+from yomi_daemon.protocol import CURRENT_PROTOCOL_VERSION
 
 DI_MIN = -100
 DI_MAX = 100
@@ -33,7 +44,7 @@ def validate_decision(decision: dict[str, Any], request: dict[str, Any]) -> str:
     if envelope_error:
         return envelope_error
 
-    payload = decision.get("payload", decision)
+    payload = decision["payload"]
 
     # Match ID check
     if str(payload.get("match_id", "")) != str(request.get("match_id", "")):
@@ -52,7 +63,7 @@ def validate_decision(decision: dict[str, Any], request: dict[str, Any]) -> str:
     extra = payload.get("extra")
     if extra is None or not isinstance(extra, dict):
         return "malformed_output"
-    if "feint" not in extra or "reverse" not in extra:
+    if "feint" not in extra or "reverse" not in extra or "prediction" not in extra:
         return "malformed_output"
 
     # Find matching legal action
@@ -99,13 +110,12 @@ def is_replayable(decision_payload: dict[str, Any], request: dict[str, Any]) -> 
 
 
 def _validate_envelope_shape(decision: dict[str, Any]) -> str:
-    if "type" in decision:
-        msg_type = str(decision.get("type", ""))
-        if msg_type == "action_decision":
-            if "payload" not in decision or not isinstance(
-                decision.get("payload"), dict
-            ):
-                return "malformed_output"
+    if str(decision.get("type", "")) != "action_decision":
+        return "malformed_output"
+    if str(decision.get("version", "")) != CURRENT_PROTOCOL_VERSION.value:
+        return "malformed_output"
+    if "payload" not in decision or not isinstance(decision.get("payload"), dict):
+        return "malformed_output"
     return ""
 
 
@@ -144,6 +154,10 @@ def _validate_extras(extra: dict[str, Any], legal_action: dict[str, Any]) -> str
         return "illegal_output"
 
     if bool(extra.get("reverse", False)) and not bool(supports.get("reverse", False)):
+        return "illegal_output"
+    if extra.get("prediction") is not None and not bool(
+        supports.get("prediction", False)
+    ):
         return "illegal_output"
 
     return ""
@@ -229,7 +243,7 @@ def _empty_fallback(request: dict[str, Any], fallback_reason: str) -> dict[str, 
         "turn_id": request.get("turn_id", 0),
         "action": "",
         "data": None,
-        "extra": {"di": None, "feint": False, "reverse": False},
+        "extra": {"di": None, "feint": False, "reverse": False, "prediction": None},
         "policy_id": "fallback/safe_continue",
         "notes": "No legal actions available for fallback.",
         "fallback_reason": fallback_reason,
@@ -247,7 +261,7 @@ def _build_fallback_from_prior(
         "action": prior_decision.get("action", ""),
         "data": prior_decision.get("data"),
         "extra": prior_decision.get(
-            "extra", {"di": None, "feint": False, "reverse": False}
+            "extra", {"di": None, "feint": False, "reverse": False, "prediction": None}
         ),
         "policy_id": "fallback/last_valid_replayable",
         "notes": "Replayed the last request-compatible decision after upstream failure.",
@@ -273,6 +287,7 @@ def _build_fallback_from_action(
             "di": di_value,
             "feint": False,
             "reverse": False,
+            "prediction": None,
         },
         "policy_id": f"fallback/{strategy}",
         "notes": "Selected fallback action after upstream failure.",
@@ -388,6 +403,9 @@ def _resolve_queued_extra(extra: Any) -> dict[str, Any] | None:
 
     resolved["feint"] = bool(extra.get("feint", False))
     resolved["reverse"] = bool(extra.get("reverse", False))
+    resolved["prediction"] = (
+        dict(extra["prediction"]) if isinstance(extra.get("prediction"), dict) else None
+    )
     return resolved
 
 
@@ -422,7 +440,7 @@ def build_event_envelope(
 
     return {
         "type": "event",
-        "version": "v1",
+        "version": CURRENT_PROTOCOL_VERSION.value,
         "ts": "2026-01-01T00:00:00Z",  # placeholder for tests
         "payload": payload,
     }

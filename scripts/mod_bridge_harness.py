@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 """Local harness for the mod bridge handshake contract.
 
 This mirrors the handshake envelope shape expected from `mod/YomiLLMBridge/bridge/BridgeClient.gd`
@@ -10,25 +12,34 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from websockets.asyncio.client import connect
 
-from yomi_daemon.protocol import Envelope, MessageType
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DAEMON_SRC = REPO_ROOT / "daemon" / "src"
+if str(DAEMON_SRC) not in sys.path:
+    sys.path.insert(0, str(DAEMON_SRC))
+
+from yomi_daemon.protocol import (
+    CURRENT_PROTOCOL_VERSION,
+    CURRENT_SCHEMA_VERSION,
+    Envelope,
+    MessageType,
+)
 from yomi_daemon.validation import parse_envelope
 
-
-REPO_ROOT = Path(__file__).resolve().parent.parent
 MOD_ROOT = REPO_ROOT / "mod" / "YomiLLMBridge"
 DEFAULT_CONFIG_PATH = MOD_ROOT / "config" / "default_config.json"
 DEFAULT_METADATA_PATH = MOD_ROOT / "_metadata"
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
-DEFAULT_SCHEMA_VERSION = "v1"
-DEFAULT_SUPPORTED_VERSIONS = ("v1",)
+DEFAULT_SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
+DEFAULT_SUPPORTED_VERSIONS = (CURRENT_PROTOCOL_VERSION.value,)
 DEFAULT_TIMEOUT_PROFILE = "strict_local"
 DEFAULT_DECISION_TIMEOUT_MS = 2500
 DEFAULT_FALLBACK_MODE = "safe_continue"

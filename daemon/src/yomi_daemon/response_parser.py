@@ -181,8 +181,8 @@ def build_correction_prompt(request: DecisionRequest, error: ResponseParsingErro
         f'Use "match_id": "{request.match_id}" and "turn_id": {request.turn_id}.\n'
         f'Choose "action" from: {legal_actions}.\n'
         'Always include "data" (use null when unsure) and "extra".\n'
-        'Use "extra": {"di": null, "feint": false, "reverse": false} unless the chosen '
-        "action explicitly supports those extras.\n"
+        'Use "extra": {"di": null, "feint": false, "reverse": false, "prediction": null} '
+        "unless the chosen action explicitly supports those extras.\n"
     )
 
 
@@ -253,6 +253,7 @@ def _normalize_decision_mapping(
     extra_mapping.setdefault("di", None)
     extra_mapping.setdefault("feint", False)
     extra_mapping.setdefault("reverse", False)
+    extra_mapping.setdefault("prediction", None)
     normalized["extra"] = extra_mapping
     return normalized
 

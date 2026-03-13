@@ -1,3 +1,5 @@
+# ruff: noqa: E402
+
 """Python mirror of the mod-side observation and legal-action building pipeline.
 
 Operates on synthetic game state fixtures (JSON files) to validate:
@@ -11,12 +13,23 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SCHEMA_PATH = REPO_ROOT / "schemas" / "decision-request.v1.json"
+DAEMON_SRC = REPO_ROOT / "daemon" / "src"
+if str(DAEMON_SRC) not in sys.path:
+    sys.path.insert(0, str(DAEMON_SRC))
+
+from yomi_daemon.protocol import (
+    CURRENT_PROTOCOL_VERSION,
+    CURRENT_SCHEMA_VERSION,
+    canonical_json,
+)
+
+SCHEMA_PATH = REPO_ROOT / "schemas" / f"decision-request.{CURRENT_SCHEMA_VERSION}.json"
 FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures" / "game_state"
 
 
@@ -195,14 +208,11 @@ def build_legal_actions(
                     "di": True,
                     "feint": supports_feint,
                     "reverse": bool(button.get("reversible", False)),
+                    "prediction": False,
                 },
             }
         )
     return result
-
-
-def canonical_json(data: Any) -> str:
-    return json.dumps(data, sort_keys=True, separators=(",", ":"))
 
 
 def sha256_hash(data: Any) -> str:
@@ -232,3 +242,66 @@ def build_decision_request(
         "observation": observation,
         "legal_actions": legal_actions,
     }
+
+
+def build_envelope(
+    message_type: str,
+    payload: dict[str, Any],
+    *,
+    ts: str = "2026-03-12T00:00:00Z",
+    version: str = CURRENT_PROTOCOL_VERSION.value,
+) -> dict[str, Any]:
+    return {
+        "type": message_type,
+        "version": version,
+        "ts": ts,
+        "payload": payload,
+    }
+
+
+def build_decision_request_envelope(
+    game_state: dict[str, Any],
+    player_id: str,
+    *,
+    match_id: str | None = None,
+    turn_id: int = 1,
+    deadline_ms: int = 2500,
+    ts: str = "2026-03-12T00:00:00Z",
+) -> dict[str, Any]:
+    return build_envelope(
+        "decision_request",
+        build_decision_request(
+            game_state,
+            player_id,
+            match_id=match_id,
+            turn_id=turn_id,
+            deadline_ms=deadline_ms,
+        ),
+        ts=ts,
+    )
+
+
+def build_match_ended_envelope(
+    *,
+    match_id: str,
+    winner: str | None = "p1",
+    end_reason: str = "ko",
+    total_turns: int = 1,
+    end_tick: int = 100,
+    end_frame: int = 10,
+    replay_path: str | None = None,
+    errors: list[str] | None = None,
+    ts: str = "2026-03-12T00:01:00Z",
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "match_id": match_id,
+        "winner": winner,
+        "end_reason": end_reason,
+        "total_turns": total_turns,
+        "end_tick": end_tick,
+        "end_frame": end_frame,
+        "errors": list(errors or []),
+    }
+    if replay_path is not None:
+        payload["replay_path"] = replay_path
+    return build_envelope("match_ended", payload, ts=ts)

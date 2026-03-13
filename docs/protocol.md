@@ -2,14 +2,16 @@
 
 Versioned transport schemas live under `schemas/`, and the daemon-side typed models live in `daemon/src/yomi_daemon/protocol.py`.
 
+The live bridge contract is now `v2`. `v1` schema files remain in the repository only as historical references.
+
 ## Envelope
 
-Every daemon/mod message is wrapped in the common v1 envelope:
+Every live daemon/mod message is wrapped in the common `v2` envelope:
 
 ```json
 {
   "type": "decision_request",
-  "version": "v1",
+  "version": "v2",
   "ts": "2026-03-12T00:00:00Z",
   "payload": {}
 }
@@ -20,7 +22,7 @@ Every daemon/mod message is wrapped in the common v1 envelope:
 - `ts` is an RFC 3339 / ISO 8601 UTC timestamp.
 - `payload` contains the message-specific body.
 
-The v1 message-type enum is:
+The `v2` message-type enum is:
 
 - `hello`
 - `hello_ack`
@@ -32,16 +34,16 @@ The v1 message-type enum is:
 
 ## Payloads
 
-The current schema set is:
+The live schema set is:
 
-- `schemas/hello.v1.json`
-- `schemas/hello-ack.v1.json`
-- `schemas/decision-request.v1.json`
-- `schemas/action-decision.v1.json`
-- `schemas/event.v1.json`
-- `schemas/match-ended.v1.json`
-- `schemas/config.v1.json`
-- `schemas/envelope.json`
+- `schemas/hello.v2.json`
+- `schemas/hello-ack.v2.json`
+- `schemas/decision-request.v2.json`
+- `schemas/action-decision.v2.json`
+- `schemas/event.v2.json`
+- `schemas/match-ended.v2.json`
+- `schemas/config.v2.json`
+- `schemas/envelope.v2.json`
 
 ### Handshake
 
@@ -102,9 +104,11 @@ Each `legal_actions` entry includes:
 - `action`
 - optional `label`
 - `payload_spec`
+- optional `payload_schema`
 - `supports.di`
 - `supports.feint`
 - `supports.reverse`
+- `supports.prediction`
 - optional tactical metadata such as `damage`, `startup_frames`, `range`, `meter_cost`, and `description`
 
 ### Action Decision
@@ -117,7 +121,7 @@ Each `legal_actions` entry includes:
 - `data`
 - `extra`
 
-`extra.di` is a percentage-int vector bounded to `[-100, 100]` on both axes. `extra.feint` and `extra.reverse` are explicit booleans even when false.
+`extra.di` is a percentage-int vector bounded to `[-100, 100]` on both axes. `extra.feint` and `extra.reverse` are explicit booleans even when false. `extra.prediction` is reserved for structured prediction extras and is `null` unless the legal action explicitly supports it.
 
 Optional debug metadata is schema-recognized:
 
@@ -162,7 +166,7 @@ The v1 fallback-reason enum is:
 
 ### Config Snapshot
 
-`config.v1.json` is the wire-safe config snapshot used during handshake and run pinning. It is intentionally narrower than later daemon file-loading concerns and currently includes:
+`config.v2.json` is the wire-safe config snapshot used during handshake and run pinning. It is intentionally narrower than later daemon file-loading concerns and currently includes:
 
 - `timeout_profile`
 - `decision_timeout_ms`
@@ -186,7 +190,26 @@ Protocol versioning is append-only.
 - Breaking changes require a new protocol version and a new schema file version.
 - The mod proposes `supported_protocol_versions` during `Hello`.
 - The daemon must respond with exactly one accepted version in `HelloAck`.
-- v1 validators reject unknown or stale envelope versions rather than silently coercing them.
+- `v2` validators reject unknown or stale envelope versions rather than silently coercing them.
+
+## Envelope-Only Runtime Contract
+
+After `hello` / `hello_ack`, live traffic must always use the canonical envelope shape.
+
+- Bare `decision_request` payloads are obsolete and rejected on the live daemon path.
+- Bare `action_decision` payloads are obsolete and rejected on the live mod path.
+- `event` and `match_ended` messages use the same `v2` envelope contract as turn requests and decisions.
+
+## Canonical Serialization And Hashing
+
+`state_hash` and `legal_actions_hash` are SHA-256 digests of canonical JSON.
+
+- Objects are serialized with lexicographically sorted keys at every nesting level.
+- Arrays preserve input order.
+- JSON is compact: no insignificant whitespace.
+- Strings are UTF-8 encoded before hashing.
+- The daemon reference implementation is `canonical_json()` / `canonical_sha256()` in `daemon/src/yomi_daemon/protocol.py`.
+- The mod mirrors the same rules in `mod/YomiLLMBridge/bridge/ProtocolCodec.gd`.
 
 ## Validation Boundaries
 

@@ -118,6 +118,10 @@ def decision_output_json_schema() -> JsonObject:
                     },
                     "feint": {"type": "boolean"},
                     "reverse": {"type": "boolean"},
+                    "prediction": {
+                        "type": ["object", "null"],
+                        "additionalProperties": True,
+                    },
                 },
             },
             "notes": {

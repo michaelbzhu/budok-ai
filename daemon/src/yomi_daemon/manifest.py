@@ -8,7 +8,13 @@ from datetime import UTC, datetime
 from yomi_daemon import __version__
 from yomi_daemon.config import DaemonRuntimeConfig
 from yomi_daemon.match import MatchMetadata
-from yomi_daemon.protocol import CURRENT_PROTOCOL_VERSION, ConfigPayload, JsonObject, ProtocolModel
+from yomi_daemon.protocol import (
+    CURRENT_PROTOCOL_VERSION,
+    CURRENT_SCHEMA_VERSION,
+    ConfigPayload,
+    JsonObject,
+    ProtocolModel,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,7 +75,7 @@ def build_match_manifest(
         created_at=manifest_time.isoformat().replace("+00:00", "Z"),
         daemon_version=__version__,
         protocol_version=CURRENT_PROTOCOL_VERSION.value,
-        schema_version=metadata.schema_version if metadata is not None else "v1",
+        schema_version=metadata.schema_version if metadata is not None else CURRENT_SCHEMA_VERSION,
         trace_seed=runtime_config.trace_seed,
         game_version=metadata.game_version if metadata is not None else None,
         mod_version=metadata.mod_version if metadata is not None else None,

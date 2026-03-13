@@ -19,6 +19,7 @@ from yomi_daemon.config import (
     TransportConfig,
 )
 from yomi_daemon.protocol import (
+    CURRENT_SCHEMA_VERSION,
     CURRENT_PROTOCOL_VERSION,
     ActionDecision,
     CharacterSelectionConfig,
@@ -87,7 +88,7 @@ def _hello_envelope() -> dict[str, object]:
         "payload": {
             "game_version": "1.0.0",
             "mod_version": "0.1.0",
-            "schema_version": "v1",
+            "schema_version": CURRENT_SCHEMA_VERSION,
             "supported_protocol_versions": [CURRENT_PROTOCOL_VERSION.value],
         },
     }
@@ -156,13 +157,23 @@ def _decision_request_envelope(
                     "action": "block",
                     "label": "Block",
                     "payload_spec": {},
-                    "supports": {"di": False, "feint": False, "reverse": False},
+                    "supports": {
+                        "di": False,
+                        "feint": False,
+                        "reverse": False,
+                        "prediction": False,
+                    },
                 },
                 {
                     "action": "attack_a",
                     "label": "Attack A",
                     "payload_spec": {},
-                    "supports": {"di": True, "feint": False, "reverse": False},
+                    "supports": {
+                        "di": True,
+                        "feint": False,
+                        "reverse": False,
+                        "prediction": False,
+                    },
                     "damage": 100.0,
                     "startup_frames": 5,
                 },
@@ -170,7 +181,12 @@ def _decision_request_envelope(
                     "action": "move_forward",
                     "label": "Move Forward",
                     "payload_spec": {},
-                    "supports": {"di": False, "feint": False, "reverse": False},
+                    "supports": {
+                        "di": False,
+                        "feint": False,
+                        "reverse": False,
+                        "prediction": False,
+                    },
                 },
             ],
         },
@@ -339,7 +355,13 @@ def test_invalid_envelope_during_match_does_not_crash() -> None:
 
                 # Send valid JSON but invalid envelope
                 await ws.send(
-                    json.dumps({"type": "bogus", "version": "v1", "ts": "now"})
+                    json.dumps(
+                        {
+                            "type": "bogus",
+                            "version": CURRENT_PROTOCOL_VERSION.value,
+                            "ts": "now",
+                        }
+                    )
                 )
 
                 # Valid request should still work
@@ -356,6 +378,48 @@ def test_invalid_envelope_during_match_does_not_crash() -> None:
 
                 await ws.send(
                     json.dumps(_match_ended_envelope(match_id=mid, total_turns=1))
+                )
+
+    asyncio.run(scenario())
+
+
+def test_bare_decision_request_is_rejected_but_enveloped_request_succeeds() -> None:
+    """Bare turn payloads are ignored after handshake; only v2 envelopes are routed."""
+
+    async def scenario() -> None:
+        mid = _unique_match_id()
+        config = _baseline_runtime_config()
+        async with running_match_server(config) as server:
+            async with connect(f"ws://127.0.0.1:{server.listening_port}") as ws:
+                await _handshake(ws)
+
+                bare_payload = _decision_request_envelope(
+                    match_id=mid, turn_id=1, player_id="p1"
+                )["payload"]
+                await ws.send(json.dumps(bare_payload))
+
+                try:
+                    await asyncio.wait_for(ws.recv(), timeout=0.05)
+                except TimeoutError:
+                    pass
+                else:
+                    raise AssertionError(
+                        "Bare decision_request payload should not receive a response"
+                    )
+
+                await ws.send(
+                    json.dumps(
+                        _decision_request_envelope(
+                            match_id=mid, turn_id=2, player_id="p1"
+                        )
+                    )
+                )
+                raw_resp = await ws.recv()
+                resp = parse_envelope(json.loads(raw_resp))
+                assert resp.type is MessageType.ACTION_DECISION
+
+                await ws.send(
+                    json.dumps(_match_ended_envelope(match_id=mid, total_turns=2))
                 )
 
     asyncio.run(scenario())

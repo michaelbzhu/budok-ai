@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+CANONICAL_FIXTURES_PATH = (
+    REPO_ROOT / "tests" / "fixtures" / "protocol" / "canonical_hash_cases.json"
+)
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.mod_observation_harness import (
     _build_character_data,
+    build_decision_request_envelope,
+    build_match_ended_envelope,
     build_decision_request,
     build_fighter_observation,
     build_legal_actions,
@@ -218,7 +224,17 @@ class TestLegalActions:
             assert "action" in action
             assert "payload_spec" in action
             assert "supports" in action
-            assert set(action["supports"].keys()) == {"di", "feint", "reverse"}
+            assert set(action["supports"].keys()) == {
+                "di",
+                "feint",
+                "reverse",
+                "prediction",
+            }
+
+    def test_prediction_defaults_false(self) -> None:
+        actions = build_legal_actions(BASIC_TURN, BASIC_TURN["p1"], "p1")
+        for action in actions:
+            assert action["supports"]["prediction"] is False
 
     def test_empty_player_buttons(self) -> None:
         actions = build_legal_actions(BASIC_TURN, BASIC_TURN["p2"], "p2")
@@ -253,6 +269,12 @@ class TestDeterminism:
         h = sha256_hash(obs)
         assert len(h) == 64
         assert all(c in "0123456789abcdef" for c in h)
+
+    def test_canonical_hash_fixtures_match_reference_values(self) -> None:
+        fixtures = json.loads(CANONICAL_FIXTURES_PATH.read_text(encoding="utf-8"))
+        for fixture in fixtures:
+            assert canonical_json(fixture["payload"]) == fixture["canonical_json"]
+            assert sha256_hash(fixture["payload"]) == fixture["sha256"]
 
 
 # --- DecisionRequest envelope ---
@@ -317,6 +339,21 @@ class TestDecisionRequest:
                 EMPTY_OBJECTS, player_id, match_id="test-match", turn_id=1
             )
             jsonschema.validate(instance=req, schema=schema)
+
+    def test_decision_request_envelope_uses_v2_contract(self) -> None:
+        envelope = build_decision_request_envelope(
+            BASIC_TURN, "p1", match_id="test-match", turn_id=1
+        )
+        assert envelope["type"] == "decision_request"
+        assert envelope["version"] == "v2"
+        assert envelope["payload"]["state_hash"]
+        assert envelope["payload"]["legal_actions_hash"]
+
+    def test_match_ended_envelope_uses_v2_contract(self) -> None:
+        envelope = build_match_ended_envelope(match_id="test-match", total_turns=3)
+        assert envelope["type"] == "match_ended"
+        assert envelope["version"] == "v2"
+        assert envelope["payload"]["total_turns"] == 3
 
 
 # --- Character data extraction ---

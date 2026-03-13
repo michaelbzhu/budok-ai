@@ -6,6 +6,7 @@ extends RefCounted
 
 const DI_MIN := -100
 const DI_MAX := 100
+const CURRENT_PROTOCOL_VERSION := "v2"
 
 
 func validate_decision(decision: Dictionary, request: Dictionary) -> String:
@@ -14,7 +15,7 @@ func validate_decision(decision: Dictionary, request: Dictionary) -> String:
 	if envelope_error != "":
 		return envelope_error
 
-	var payload = decision.get("payload", decision)
+	var payload = decision["payload"]
 
 	# Match ID check
 	if str(payload.get("match_id", "")) != str(request.get("match_id", "")):
@@ -33,7 +34,7 @@ func validate_decision(decision: Dictionary, request: Dictionary) -> String:
 	var extra = payload.get("extra")
 	if extra == null or not (extra is Dictionary):
 		return "malformed_output"
-	if not extra.has("feint") or not extra.has("reverse"):
+	if not extra.has("feint") or not extra.has("reverse") or not extra.has("prediction"):
 		return "malformed_output"
 
 	# Find matching legal action
@@ -81,12 +82,13 @@ func is_replayable(decision_payload: Dictionary, request: Dictionary) -> bool:
 
 
 func _validate_envelope_shape(decision: Dictionary) -> String:
-	# Accept both enveloped and bare payload forms
-	if decision.has("type"):
-		var msg_type = str(decision.get("type", ""))
-		if msg_type == "action_decision":
-			if not decision.has("payload") or not (decision["payload"] is Dictionary):
-				return "malformed_output"
+	# Live v2 traffic must always use the canonical envelope contract.
+	if str(decision.get("type", "")) != "action_decision":
+		return "malformed_output"
+	if str(decision.get("version", "")) != CURRENT_PROTOCOL_VERSION:
+		return "malformed_output"
+	if not decision.has("payload") or not (decision["payload"] is Dictionary):
+		return "malformed_output"
 	return ""
 
 
@@ -126,6 +128,8 @@ func _validate_extras(extra: Dictionary, legal_action: Dictionary) -> String:
 
 	# Reverse validation
 	if bool(extra.get("reverse", false)) and not bool(supports.get("reverse", false)):
+		return "illegal_output"
+	if extra.get("prediction") != null and not bool(supports.get("prediction", false)):
 		return "illegal_output"
 
 	return ""

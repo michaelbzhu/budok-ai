@@ -75,7 +75,9 @@ def build_action(
         action=action_id,
         label=label,
         payload_spec=payload_spec or {},
-        supports=LegalActionSupports(di=di, feint=feint, reverse=reverse),
+        supports=LegalActionSupports(
+            di=di, feint=feint, reverse=reverse, prediction=False
+        ),
         damage=damage,
         startup_frames=startup_frames,
         range=None,
@@ -123,6 +125,7 @@ def build_decision(
             di=DIVector(x=di[0], y=di[1]) if di is not None else None,
             feint=feint,
             reverse=reverse,
+            prediction=None,
         ),
         policy_id="provider/mock",
     )
