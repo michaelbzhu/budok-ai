@@ -1,5 +1,7 @@
 extends Node
 
+signal status_changed(snapshot)
+
 # Detects actionable turns, emits DecisionRequest envelopes to the daemon,
 # receives and validates responses, applies decisions or triggers fallback,
 # and emits telemetry events throughout the lifecycle.
@@ -18,6 +20,20 @@ var _action_applier = null
 var _fallback_handler = null
 var _telemetry = null
 var _protocol_codec = null
+var _identifier_factory = null
+var _runtime_compatibility = null
+var _status_snapshot = {
+	"state": "waiting_for_game",
+	"compatible": null,
+	"match_id": "",
+	"errors": [],
+	"details": {},
+	"match_ended": null,
+}
+var _compatibility_signature = ""
+var _match_end_pending = {}
+var _match_ended = false
+var _replay_snapshot = {}
 
 # Pending requests keyed by "p1_turnid" or "p2_turnid" for correlation
 var _pending_requests = {}
@@ -35,12 +51,15 @@ func attach(bridge_client, config: Dictionary) -> void:
 	_fallback_handler = load(_get_script_dir() + "/FallbackHandler.gd").new()
 	_telemetry = load(_get_script_dir() + "/Telemetry.gd").new()
 	_protocol_codec = load(_get_script_dir() + "/ProtocolCodec.gd").new()
+	_identifier_factory = load(_get_script_dir() + "/IdentifierFactory.gd").new()
+	_runtime_compatibility = load(_get_script_dir() + "/RuntimeCompatibility.gd").new()
 
 	# Subscribe to daemon messages and disconnect events
 	_bridge_client.connect("daemon_message", self, "_on_daemon_message")
 	_bridge_client.connect("daemon_disconnected", self, "_on_daemon_disconnected")
 
 	set_process(true)
+	_publish_status("waiting_for_game", null, [], {})
 
 
 func _process(_delta: float) -> void:
@@ -48,22 +67,22 @@ func _process(_delta: float) -> void:
 		_check_timeouts()
 		return
 	if not _has_global_game():
+		_publish_status("waiting_for_game", null, [], {})
 		return
 
-	_game = Global.current_game
-	_match_id = _generate_uuid_v4()
-	_turn_id = 0
-	_game.connect("player_actionable", self, "_on_player_actionable")
-	_game_connected = true
-
-	# Configure telemetry now that we have a match_id
-	_telemetry.configure(_bridge_client, _config, _match_id)
-
-	print("YomiLLMBridge TurnHook attached to game, match_id=%s" % _match_id)
+	var compatibility = _runtime_compatibility.check(
+		Global.current_game,
+		get_tree().get_root(),
+		_config
+	)
+	if not bool(compatibility.get("compatible", false)):
+		_publish_compatibility_failure(compatibility)
+		return
+	_attach_to_game(Global.current_game, compatibility)
 
 
 func _on_player_actionable() -> void:
-	if _game == null:
+	if _game == null or _match_ended:
 		return
 
 	var actionable_players = _get_actionable_players()
@@ -111,6 +130,8 @@ func _on_player_actionable() -> void:
 
 
 func _on_daemon_message(envelope: Dictionary) -> void:
+	if _match_ended:
+		return
 	if str(envelope.get("type", "")) != "action_decision":
 		return
 	if not envelope.has("payload") or not (envelope["payload"] is Dictionary):
@@ -208,6 +229,8 @@ func _apply_fallback(
 
 
 func _on_daemon_disconnected(_details: Dictionary) -> void:
+	if _match_ended:
+		return
 	# Resolve all pending requests as disconnected
 	var keys_to_resolve = _pending_requests.keys().duplicate()
 	for pending_key in keys_to_resolve:
@@ -221,6 +244,8 @@ func _on_daemon_disconnected(_details: Dictionary) -> void:
 
 
 func _check_timeouts() -> void:
+	if _match_ended:
+		return
 	var timeout_ms = int(_config.get("decision_timeout_ms", 2500))
 	var now = OS.get_ticks_msec()
 	var keys_to_resolve = []
@@ -289,20 +314,213 @@ func _has_global_game() -> bool:
 	return Global.current_game != null
 
 
-func _generate_uuid_v4() -> String:
-	randomize()
-	var hex_chars = "0123456789abcdef"
-	var uuid = ""
-	for i in range(32):
-		if i == 12:
-			uuid += "4"
-		elif i == 16:
-			uuid += hex_chars[8 + (randi() % 4)]
-		else:
-			uuid += hex_chars[randi() % 16]
-		if i == 7 or i == 11 or i == 15 or i == 19:
-			uuid += "-"
-	return uuid
+func get_status() -> Dictionary:
+	return _status_snapshot.duplicate(true)
+
+
+func _attach_to_game(game, compatibility: Dictionary) -> void:
+	if _game_connected and _game == game:
+		return
+
+	_game = game
+	_match_id = _identifier_factory.new_match_id()
+	_turn_id = 0
+	_match_end_pending = {}
+	_match_ended = false
+	_compatibility_signature = ""
+	_pending_requests.clear()
+	_pending_timestamps.clear()
+	_replay_snapshot = _snapshot_replay_directory("user://replay/autosave")
+	_game.connect("player_actionable", self, "_on_player_actionable")
+	_game.connect("game_ended", self, "_on_game_ended")
+	_game.connect("game_won", self, "_on_game_won")
+	_game_connected = true
+
+	# Configure telemetry now that we have a match_id
+	_telemetry.configure(_bridge_client, _config, _match_id)
+
+	_publish_status("active", true, [], compatibility.get("details", {}))
+	print("YomiLLMBridge TurnHook attached to game, match_id=%s" % _match_id)
+
+
+func _publish_compatibility_failure(compatibility: Dictionary) -> void:
+	var errors = compatibility.get("errors", [])
+	var details = compatibility.get("details", {})
+	var signature = to_json({"errors": errors, "details": details})
+	_publish_status("compatibility_failed", false, errors, details)
+	if signature == _compatibility_signature:
+		return
+	_compatibility_signature = signature
+	for error_message in errors:
+		printerr("YomiLLMBridge compatibility check failed: %s" % error_message)
+
+
+func _publish_status(
+	state: String,
+	compatible,
+	errors: Array,
+	details: Dictionary,
+	match_ended_payload = null
+) -> void:
+	var next_snapshot = {
+		"state": state,
+		"compatible": compatible,
+		"match_id": _match_id,
+		"errors": errors.duplicate(true),
+		"details": details.duplicate(true),
+		"match_ended": (
+			match_ended_payload.duplicate(true)
+			if match_ended_payload is Dictionary
+			else match_ended_payload
+		),
+	}
+	if to_json(next_snapshot) == to_json(_status_snapshot):
+		return
+	_status_snapshot = next_snapshot
+	emit_signal("status_changed", get_status())
+
+
+func _on_game_ended() -> void:
+	if _match_ended:
+		return
+	_match_end_pending = _build_match_ended_payload(null)
+
+
+func _on_game_won(winner) -> void:
+	if _match_ended:
+		return
+	var payload = (
+		_match_end_pending.duplicate(true)
+		if not _match_end_pending.empty()
+		else _build_match_ended_payload(winner)
+	)
+	payload["winner"] = _normalize_winner(winner)
+	_finalize_match(payload)
+
+
+func _finalize_match(payload: Dictionary) -> void:
+	if _match_ended:
+		return
+	_match_ended = true
+	_match_end_pending = {}
+	_pending_requests.clear()
+	_pending_timestamps.clear()
+	_telemetry.emit_match_ended(payload)
+	_publish_status("match_ended", true, [], _status_snapshot.get("details", {}), payload)
+	print("YomiLLMBridge match ended: %s" % payload)
+
+
+func _build_match_ended_payload(winner_override) -> Dictionary:
+	var payload = {
+		"match_id": _match_id,
+		"winner": _normalize_winner(winner_override),
+		"end_reason": _derive_end_reason(),
+		"total_turns": _turn_id,
+		"end_tick": _derive_end_tick(),
+		"end_frame": _derive_end_frame(),
+		"errors": [],
+	}
+	var replay_path = _find_replay_path()
+	if replay_path != null:
+		payload["replay_path"] = replay_path
+	return payload
+
+
+func _normalize_winner(winner_override):
+	if winner_override == 1 or str(winner_override).to_lower() == "p1":
+		return "p1"
+	if winner_override == 2 or str(winner_override).to_lower() == "p2":
+		return "p2"
+	if _game == null:
+		return null
+	var p1_hp = int(_game.p1.hp)
+	var p2_hp = int(_game.p2.hp)
+	if p1_hp > p2_hp:
+		return "p1"
+	if p2_hp > p1_hp:
+		return "p2"
+	return null
+
+
+func _derive_end_reason() -> String:
+	if _game == null:
+		return "resolved"
+	if int(_game.current_tick) > int(_game.time):
+		return "timeout"
+	if int(_game.p1.hp) <= 0 or int(_game.p2.hp) <= 0:
+		return "ko"
+	return "resolved"
+
+
+func _derive_end_tick() -> int:
+	if _game == null:
+		return 0
+	if _has_property(_game, "game_end_tick"):
+		return int(_game.game_end_tick)
+	return int(_game.current_tick)
+
+
+func _derive_end_frame() -> int:
+	if _game == null:
+		return 0
+	return max(int(_game.p1.state_tick), int(_game.p2.state_tick))
+
+
+func _find_replay_path():
+	var after = _snapshot_replay_directory("user://replay/autosave")
+	var best_path = ""
+	var best_time = -1
+	for path in after:
+		var modified_at = int(after[path])
+		if not str(path).ends_with(".replay"):
+			continue
+		if modified_at <= int(_replay_snapshot.get(path, -1)):
+			continue
+		if modified_at > best_time:
+			best_time = modified_at
+			best_path = str(path)
+	if best_path != "":
+		return ProjectSettings.globalize_path(best_path)
+
+	for path in after:
+		var modified_at = int(after[path])
+		if not str(path).ends_with(".replay"):
+			continue
+		if modified_at > best_time:
+			best_time = modified_at
+			best_path = str(path)
+	if best_path == "":
+		return null
+	return ProjectSettings.globalize_path(best_path)
+
+
+func _snapshot_replay_directory(path: String) -> Dictionary:
+	var snapshot = {}
+	var directory = Directory.new()
+	if directory.open(path) != OK:
+		return snapshot
+	directory.list_dir_begin(true, true)
+	while true:
+		var file_name = directory.get_next()
+		if file_name == "":
+			break
+		if directory.current_is_dir():
+			continue
+		if not file_name.ends_with(".replay"):
+			continue
+		var file_path = path.plus_file(file_name)
+		snapshot[file_path] = directory.get_modified_time(file_path)
+	directory.list_dir_end()
+	return snapshot
+
+
+func _has_property(target, property_name: String) -> bool:
+	if target == null or not target.has_method("get_property_list"):
+		return false
+	for property_data in target.get_property_list():
+		if str(property_data.get("name", "")) == property_name:
+			return true
+	return false
 
 
 func _get_script_dir() -> String:

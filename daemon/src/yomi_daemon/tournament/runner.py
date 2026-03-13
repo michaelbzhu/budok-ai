@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from yomi_daemon.config import DaemonRuntimeConfig, TournamentDefaults
+from yomi_daemon.ids import new_match_id
 from yomi_daemon.tournament.ratings import MatchResult, RatingTable
 from yomi_daemon.tournament.reporter import (
     TournamentReport,
@@ -65,7 +65,7 @@ async def run_tournament(
 
     # Run matches sequentially (concurrency=1 for MVP to respect rate limits)
     for pairing in pairings:
-        match_id = f"match-{uuid.uuid4().hex[:12]}"
+        match_id = new_match_id()
         state.match_ids.append(match_id)
 
         try:

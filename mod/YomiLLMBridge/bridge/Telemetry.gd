@@ -89,20 +89,21 @@ func emit_decision_fallback(
 
 
 func emit_match_ended(
-	winner,
-	end_reason: String,
-	total_turns: int
+	payload: Dictionary
 ) -> void:
 	var details = {
-		"end_reason": end_reason,
-		"total_turns": total_turns,
+		"winner": payload.get("winner", null),
+		"end_reason": str(payload.get("end_reason", "")),
+		"total_turns": int(payload.get("total_turns", 0)),
+		"end_tick": int(payload.get("end_tick", 0)),
+		"end_frame": int(payload.get("end_frame", 0)),
 	}
-	if winner != null:
-		details["winner"] = str(winner)
-
+	if payload.has("replay_path"):
+		details["replay_path"] = payload.get("replay_path", null)
 	_emit_event("MatchEnded", {
 		"details": details,
 	})
+	_emit_envelope("match_ended", payload)
 
 
 func emit_error(
@@ -133,7 +134,11 @@ func _emit_event(event_name: String, overrides: Dictionary) -> void:
 	for key in overrides:
 		payload[key] = overrides[key]
 
-	var envelope = _protocol_codec.build_envelope("event", payload)
+	_emit_envelope("event", payload)
+
+
+func _emit_envelope(message_type: String, payload: Dictionary) -> void:
+	var envelope = _protocol_codec.build_envelope(message_type, payload)
 
 	if _bridge_client != null:
 		_bridge_client._send_json_message(envelope)

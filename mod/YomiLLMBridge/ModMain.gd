@@ -48,12 +48,20 @@ func _ready() -> void:
 
 
 func get_bridge_status() -> Dictionary:
+	var runtime_status = (
+		turn_hook.get_status()
+		if turn_hook != null and turn_hook.has_method("get_status")
+		else {}
+	)
 	if bridge_client == null:
 		return {
 			"state": "missing_bridge_client",
 			"config": bridge_config.duplicate(true),
+			"runtime": runtime_status,
 		}
-	return bridge_client.get_connection_snapshot()
+	var snapshot = bridge_client.get_connection_snapshot()
+	snapshot["runtime"] = runtime_status
+	return snapshot
 
 
 func get_bridge_config() -> Dictionary:
@@ -61,6 +69,8 @@ func get_bridge_config() -> Dictionary:
 
 
 func _on_bridge_state_changed(state: String, details: Dictionary) -> void:
+	if options_ui != null:
+		options_ui.update_bridge_snapshot(get_bridge_status())
 	if not bool(bridge_config.get("logging", {}).get("bridge_state", true)):
 		return
 	print("YomiLLMBridge bridge state=%s details=%s" % [state, details])
@@ -84,7 +94,14 @@ func _attach_turn_hook() -> void:
 		return
 	turn_hook = script.new()
 	add_child(turn_hook)
+	turn_hook.connect("status_changed", self, "_on_turn_hook_status_changed")
 	turn_hook.attach(bridge_client, bridge_config)
+	_on_turn_hook_status_changed(turn_hook.get_status())
+
+
+func _on_turn_hook_status_changed(_snapshot: Dictionary) -> void:
+	if options_ui != null:
+		options_ui.update_bridge_snapshot(get_bridge_status())
 
 
 func _build_handshake_context() -> Dictionary:

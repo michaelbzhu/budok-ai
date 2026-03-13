@@ -15,6 +15,7 @@ Confirmed public-build fixture:
 
 - `tests/fixtures/decompile/yomi_hustle_supported_build_16151810.json` records the first supported-build recovery captured in-repo.
 - That fixture was recovered from app `2212330`, depot `2232859`, public build `16151810`, and detected engine version `3.5.1`.
+- The recovered `Global.VERSION` marker for that build is `1.9.20-steam`.
 
 ## Canonical Decompilation Workflow
 
@@ -208,6 +209,37 @@ File ownership for later work units should be:
 - [`ActionApplier.gd`](../mod/YomiLLMBridge/bridge/ActionApplier.gd): call `on_action_selected(action, data, extra)` when available, then fall back to direct queued-field writes only for compatibility harnesses
 - [`FallbackHandler.gd`](../mod/YomiLLMBridge/bridge/FallbackHandler.gd): choose legal fallback actions for timeout, disconnect, or invalid responses
 - [`Telemetry.gd`](../mod/YomiLLMBridge/bridge/Telemetry.gd): emit auditable lifecycle events around request, apply, fallback, and match end
+
+### 6. Match Lifecycle And Runtime Compatibility
+
+Confirmed native owner:
+
+- `res://game.gd`
+
+Confirmed supported-build seams:
+
+- `signal game_ended()`
+- `signal game_won(winner)`
+- `func end_game()` computes the winner from live fighter HP, sets `game_end_tick`, and emits `game_ended` before `game_won(winner)`.
+- `ReplayManager.save_replay_mp(...)` writes autosaves under `user://replay/autosave/` when multiplayer matches finish.
+
+Implication for this repository:
+
+- [`TurnHook.gd`](../mod/YomiLLMBridge/bridge/TurnHook.gd) should subscribe to `game_ended` and `game_won(winner)` on the same `Global.current_game` instance it uses for `player_actionable`.
+- The bridge should not guess winner data from disconnect handling in the happy path. It should wait for the native match-resolution seam and emit a dedicated `match_ended` envelope once winner, end reason, turn count, and replay path are available.
+- Runtime compatibility checks should gate live control before the bridge sends turn requests. The minimum supported contract is:
+  - `Global.VERSION == "1.9.20-steam"`
+  - engine version prefix `3.5.1`
+  - `Global.current_game` script path ending in `game.gd`
+  - game signals `player_actionable`, `game_ended`, and `game_won`
+  - both fighter objects exposing `hp`, `queued_*`, `state_interruptable`, `game_over`, `state_tick`, and `on_action_selected(...)`
+  - scene nodes `P1ActionButtons` and `P2ActionButtons`
+
+Validation steps after decompile:
+
+1. Confirm `game.gd` still owns `end_game()` and still emits `game_ended` plus `game_won(winner)`.
+2. Reconfirm the supported `Global.VERSION` marker for the live build before widening compatibility.
+3. If replay autosave behavior changes, update the bridge-side replay-path discovery logic before trusting `replay_path` in artifacts.
 
 ## DI, Feint, Reverse, And Turn Freshness
 

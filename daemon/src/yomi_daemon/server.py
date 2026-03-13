@@ -8,7 +8,6 @@ import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from itertools import count
 from typing import TYPE_CHECKING, Any, cast
 
 from websockets.asyncio.server import Server, ServerConnection, serve
@@ -16,6 +15,7 @@ from websockets.exceptions import ConnectionClosed
 
 from yomi_daemon import __version__
 from yomi_daemon.adapters.base import PolicyAdapter, build_player_policy_adapters
+from yomi_daemon.ids import SessionIdGenerator
 from yomi_daemon.manifest import build_match_manifest
 from yomi_daemon.match import MatchSession
 from yomi_daemon.orchestrator import resolve_policy_decision
@@ -83,7 +83,7 @@ class DaemonServer:
         )
         self.logger = logger or logging.getLogger("yomi_daemon.server")
         self._server: Server | None = None
-        self._session_counter = count(1)
+        self._session_ids = SessionIdGenerator()
         self._active_sessions: dict[str, MatchSession] = {}
         self._stopped = asyncio.Event()
         self._stopped.set()
@@ -131,7 +131,7 @@ class DaemonServer:
         await self._stopped.wait()
 
     async def _handle_connection(self, connection: ServerConnection) -> None:
-        session_id = f"session-{next(self._session_counter):04d}"
+        session_id = self._session_ids.next()
         remote_address = self._format_remote_address(connection.remote_address)
         self.logger.info("Accepted connection %s from %s", session_id, remote_address)
 

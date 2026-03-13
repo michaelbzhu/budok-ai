@@ -20,6 +20,7 @@ def test_supported_build_fixture_records_confirmed_game_hooks() -> None:
 
     assert fixture["app_id"] == 2212330
     assert fixture["public_build_id"] == 16151810
+    assert fixture["global_version"] == "1.9.20-steam"
     assert fixture["depot_id"] == 2232859
     assert fixture["manifest_gid"] == "2006404455181526055"
     assert fixture["engine_version_detected"] == "3.5.1"
@@ -41,6 +42,11 @@ def test_supported_build_fixture_records_confirmed_game_hooks() -> None:
         "queued_data",
         "queued_extra",
     ]
+    assert fixture["hooks"]["match_lifecycle"] == {
+        "game_script": "game.gd",
+        "end_method": "end_game()",
+        "signals": ["game_ended()", "game_won(winner)"],
+    }
     assert {entry["path"] for entry in fixture["files"]} == {
         "game.gd",
         "main.gd",

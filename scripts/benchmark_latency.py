@@ -14,7 +14,6 @@ import asyncio
 import json
 import sys
 import time
-import uuid
 from typing import Any, cast
 
 from websockets.asyncio.client import connect
@@ -25,6 +24,7 @@ from yomi_daemon.config import (
     TournamentDefaults,
     TransportConfig,
 )
+from yomi_daemon.ids import new_benchmark_id
 from yomi_daemon.protocol import (
     CURRENT_SCHEMA_VERSION,
     CURRENT_PROTOCOL_VERSION,
@@ -211,7 +211,7 @@ async def run_benchmark(
     profile: str, turns: int, policy: str, trace_seed: int
 ) -> dict[str, Any]:
     config = _build_config(profile, policy, trace_seed)
-    match_id = f"bench-{uuid.uuid4().hex[:8]}"
+    match_id = new_benchmark_id()
 
     server = DaemonServer(
         port=0,

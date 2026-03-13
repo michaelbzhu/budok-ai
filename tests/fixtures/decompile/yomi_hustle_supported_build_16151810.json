@@ -2,6 +2,7 @@
   "app_id": 2212330,
   "name": "Your Only Move Is HUSTLE",
   "public_build_id": 16151810,
+  "global_version": "1.9.20-steam",
   "depot_id": 2232859,
   "manifest_gid": "2006404455181526055",
   "engine_version_detected": "3.5.1",
@@ -29,6 +30,14 @@
         "queued_action",
         "queued_data",
         "queued_extra"
+      ]
+    },
+    "match_lifecycle": {
+      "game_script": "game.gd",
+      "end_method": "end_game()",
+      "signals": [
+        "game_ended()",
+        "game_won(winner)"
       ]
     },
     "character_select_override": {
