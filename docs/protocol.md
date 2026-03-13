@@ -53,6 +53,7 @@ The live schema set is:
 - `mod_version`
 - `schema_version`
 - `supported_protocol_versions`
+- optional `auth_token` (shared-secret authentication, see [operations](operations.md#shared-secret-authentication))
 
 `HelloAck` confirms the negotiated version and pins the daemon-side match mapping:
 
@@ -97,7 +98,11 @@ Recommended metadata fields are optional but versioned in-schema already:
 - `stage`
 - `history`
 
-Each fighter entry is typed with the common strategic fields from the spec, including position, velocity, meter, burst, and current state.
+Each fighter entry is typed with the common strategic fields from the spec. Required fields include position, velocity, health, meter, burst, facing, current state name, and actionability flags. Optional fields include `air_actions_remaining`, `feints_remaining`, `initiative`, `sadness`, `wakeup_throw_immune`, `combo_proration`, and `character_data`.
+
+`history` is a list of recent `HistoryEntry` records (capped at `MAX_HISTORY_ENTRIES = 10`), each containing `turn_id`, `player_id`, `action`, and `was_fallback`.
+
+`objects` entries are classified by `classify_object_type()` into categories: `projectile` (Bullet, Arrow, StickyBomb, Shuriken, LoicBeam, Zap, Fireball, WindSlash), `install` (Geyser, Storm, Trap, Mine), and `effect` (Shield, Aura).
 
 Each `legal_actions` entry includes:
 

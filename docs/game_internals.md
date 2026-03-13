@@ -67,8 +67,7 @@ Implication for this repository:
 - `TurnHook.gd` should own:
   - attaching to the live game instance
   - deciding whether P1 or P2 is AI-controlled
-  - minting `match_id` and `turn_id`
-  - calling `ObservationBuilder`, `LegalActionBuilder`, `BridgeClient`, and `ActionApplier`
+  - coordinating `IdentifierFactory`, `ObservationBuilder`, `LegalActionBuilder`, `BridgeClient`, and `ActionApplier`
 
 Validation steps after decompile:
 
@@ -209,6 +208,9 @@ File ownership for later work units should be:
 - [`ActionApplier.gd`](../mod/YomiLLMBridge/bridge/ActionApplier.gd): call `on_action_selected(action, data, extra)` when available, then fall back to direct queued-field writes only for compatibility harnesses
 - [`FallbackHandler.gd`](../mod/YomiLLMBridge/bridge/FallbackHandler.gd): choose legal fallback actions for timeout, disconnect, or invalid responses
 - [`Telemetry.gd`](../mod/YomiLLMBridge/bridge/Telemetry.gd): emit auditable lifecycle events around request, apply, fallback, and match end
+- [`ProtocolCodec.gd`](../mod/YomiLLMBridge/bridge/ProtocolCodec.gd): envelope encoding/decoding and canonical JSON hashing (mirrors `canonical_json()` / `canonical_sha256()` from the daemon)
+- [`IdentifierFactory.gd`](../mod/YomiLLMBridge/bridge/IdentifierFactory.gd): mint `match_id` and `turn_id` values (moved out of `TurnHook.gd` for testability)
+- [`RuntimeCompatibility.gd`](../mod/YomiLLMBridge/bridge/RuntimeCompatibility.gd): gate live control by checking `Global.VERSION`, engine version, game signals, and fighter fields before the bridge sends turn requests
 
 ### 6. Match Lifecycle And Runtime Compatibility
 

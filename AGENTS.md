@@ -1,6 +1,6 @@
 # AGENTS
 
-This repository is organized around work units in `plans/v0.md`.
+This repository is organized around work units in `plans/v0.md` and `plans/v1.md`.
 
 ## Work units
 
@@ -29,7 +29,7 @@ This repository is organized around work units in `plans/v0.md`.
 - Verify the work unit's acceptance criteria that are claimed complete.
 - Add the tests listed in the work unit that are in scope for the implemented changes.
 - For Python changes, run `uv run ruff format`, `uv run ruff check`, `uv run ty check`, and `uv run pytest` before commit unless the work unit explicitly narrows scope.
-- Make sure docs and config changes stay consistent with `specs/unified_spec.md` and `plans/v0.md`.
+- Make sure docs and config changes stay consistent with `specs/unified_spec.md`, `plans/v0.md`, and `plans/v1.md`.
 - Make sure the commit message reflects the work unit and the reason for the change.
 
 ## Default expectations

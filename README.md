@@ -1,11 +1,11 @@
 # YOMI Hustle LLM Arena
 
-This repository implements the local mod-plus-daemon system described in [the unified spec](specs/unified_spec.md). The codebase is organized around work units in [the implementation plan](plans/v0.md).
+This repository implements the local mod-plus-daemon system described in [the unified spec](specs/unified_spec.md). The codebase is organized around work units in the implementation plans ([v0](plans/v0.md), [v1](plans/v1.md)).
 
 ## Repository layout
 
 - `daemon/`: Python package, local tooling, and daemon-side implementation.
-- `docs/`: architecture, operations, protocol, and game-internals notes.
+- `docs/`: architecture, data flow, operations, protocol, game-internals, and prompt-engineering notes.
 - `mod/`: Godot mod sources under `mod/YomiLLMBridge/`.
 - `prompts/`: versioned prompt templates used by daemon adapters.
 - `schemas/`: versioned JSON schemas for the IPC protocol.
@@ -78,11 +78,22 @@ Match artifacts are written under `runs/<timestamp>_<match_id>/`. The directory 
 - Daemon orchestration, adapters, and artifact writing live under `daemon/src/yomi_daemon/`.
 - Godot bridge logic lives under `mod/YomiLLMBridge/`.
 
-The authoritative requirements remain [the unified spec](specs/unified_spec.md) and [the work plan](plans/v0.md).
+The authoritative requirements remain [the unified spec](specs/unified_spec.md) and the work plans ([v0](plans/v0.md), [v1](plans/v1.md)).
+
+## Documentation
+
+Start with [`docs/setup.md`](docs/setup.md) to install dependencies and configure the system. Then:
+
+- [`docs/experiments.md`](docs/experiments.md) — running matches, tournaments, analyzing results, benchmarking
+- [`docs/data_flow.md`](docs/data_flow.md) — end-to-end turn lifecycle from game signal to applied action
+- [`docs/architecture.md`](docs/architecture.md) — daemon module map, config, manifest, mod bridge files
+- [`docs/protocol.md`](docs/protocol.md) — v2 wire protocol, envelope contract, payload schemas
+- [`docs/game_internals.md`](docs/game_internals.md) — YOMI Hustle hook points, mod bridge ownership
+- [`docs/operations.md`](docs/operations.md) — commands, security, artifacts, troubleshooting
+- [`docs/prompt_engineering.md`](docs/prompt_engineering.md) — prompt templates, response parsing, provider adapters
 
 ## Known limitations
 
 - Provider decisions (Anthropic, OpenAI, OpenRouter) are non-deterministic due to model sampling. Only baseline policies produce reproducible runs.
 - `character_data` is supported for 5 of 6 characters (Cowboy, Robot, Ninja, Mutant, Wizard). Alien returns empty/no data.
-- The `history` field in observations is always empty in the MVP. Historical turn data is not yet captured.
 - Daemon-only benchmarks simulate the WebSocket protocol but do not run against a live game instance.

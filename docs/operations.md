@@ -27,10 +27,62 @@ Run the daemon with an explicit runtime config file:
 uv run --project daemon yomi-daemon --config daemon/config/default_config.json
 ```
 
+Run the daemon with verbose logging:
+
+```bash
+uv run --project daemon yomi-daemon --log-level DEBUG
+```
+
 Run the daemon smoke tests:
 
 ```bash
 uv run --project daemon pytest tests/daemon
+```
+
+Run a single local match (daemon waits for mod connection):
+
+```bash
+scripts/run_local_match.sh --p1-policy baseline/random --p2-policy baseline/block_always
+```
+
+Run a round-robin tournament:
+
+```bash
+scripts/run_round_robin.sh baseline/random baseline/block_always baseline/greedy_damage
+```
+
+Generate tournament pairings without running matches:
+
+```bash
+uv run --project daemon python -m yomi_daemon.tournament.cli schedule baseline/random baseline/block_always
+```
+
+Generate a tournament report from existing run artifacts:
+
+```bash
+uv run --project daemon python -m yomi_daemon.tournament.cli report --runs-dir runs/
+```
+
+## Quality gates
+
+Run all quality checks before committing:
+
+```bash
+uv run --project daemon ruff format
+uv run --project daemon ruff check
+uv run --project daemon ty check
+uv run --project daemon pytest
+```
+
+## Mod harness scripts
+
+Offline harness scripts test mod bridge logic without a running game:
+
+```bash
+uv run --project daemon python scripts/mod_bridge_harness.py
+uv run --project daemon python scripts/mod_observation_harness.py
+uv run --project daemon python scripts/mod_decision_harness.py
+uv run --project daemon python scripts/mod_runtime_harness.py
 ```
 
 ## Runtime config notes
