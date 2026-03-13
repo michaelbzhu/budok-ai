@@ -34,17 +34,26 @@ class MatchupStats:
 
 @dataclass(frozen=True, slots=True)
 class LatencySummary:
-    """Per-policy latency and fallback summary."""
+    """Per-policy latency, fallback, token, and cost summary."""
 
     policy_id: str
     total_decisions: int = 0
     total_fallbacks: int = 0
     average_latency_ms: float | None = None
     total_latency_ms: int = 0
+    tokens_in_total: int = 0
+    tokens_out_total: int = 0
+    total_prompt_chars: int = 0
+    estimated_cost_usd: float | None = None
 
     @property
     def fallback_rate(self) -> float:
         return self.total_fallbacks / self.total_decisions if self.total_decisions else 0.0
+
+    @property
+    def legality_rate(self) -> float:
+        """Fraction of decisions that did not require fallback."""
+        return 1.0 - self.fallback_rate
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +124,10 @@ def _collect_metrics(
     runs_root: Path,
     match_ids: set[str],
 ) -> list[Mapping[str, object]]:
-    """Read metrics.json files for the given match IDs."""
+    """Read metrics.json files for the given match IDs.
+
+    Also reads prompt character counts from prompts.jsonl when available.
+    """
     entries: list[Mapping[str, object]] = []
     for run_dir in sorted(runs_root.iterdir()):
         metrics_path = run_dir / "metrics.json"
@@ -129,8 +141,43 @@ def _collect_metrics(
             continue
         if metrics.get("match_id", "") not in match_ids:
             continue
-        entries.append({"metrics": metrics, "manifest": manifest})
+
+        # Sum prompt character lengths from prompts.jsonl
+        prompt_chars = 0
+        prompts_path = run_dir / "prompts.jsonl"
+        if prompts_path.exists():
+            try:
+                for line in prompts_path.read_text(encoding="utf-8").strip().splitlines():
+                    record = json.loads(line)
+                    prompt_chars += len(record.get("prompt_text", ""))
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        entries.append(
+            {
+                "metrics": metrics,
+                "manifest": manifest,
+                "prompt_chars": prompt_chars,
+            }
+        )
     return entries
+
+
+# Default cost rates in USD per token.  These are rough approximations used
+# for tournament-level estimates — actual per-provider rates can differ.
+_DEFAULT_INPUT_COST_PER_TOKEN = 3.0 / 1_000_000  # $3/MTok
+_DEFAULT_OUTPUT_COST_PER_TOKEN = 15.0 / 1_000_000  # $15/MTok
+
+
+def estimate_cost_usd(
+    tokens_in: int,
+    tokens_out: int,
+    *,
+    input_cost_per_token: float = _DEFAULT_INPUT_COST_PER_TOKEN,
+    output_cost_per_token: float = _DEFAULT_OUTPUT_COST_PER_TOKEN,
+) -> float:
+    """Estimate cost in USD from token counts using per-token rates."""
+    return tokens_in * input_cost_per_token + tokens_out * output_cost_per_token
 
 
 def build_matchup_table(results: Sequence[MatchResult]) -> list[MatchupStats]:
@@ -199,6 +246,9 @@ def build_latency_summaries(
             "fallbacks": 0,
             "total_latency": 0,
             "latency_samples": 0,
+            "tokens_in": 0,
+            "tokens_out": 0,
+            "prompt_chars": 0,
         }
     )
 
@@ -210,6 +260,9 @@ def build_latency_summaries(
         fallbacks = metrics.get("fallback_count", 0)  # type: ignore[union-attr]
         total_lat = metrics.get("total_latency_ms", 0)  # type: ignore[union-attr]
         lat_samples = metrics.get("latency_sample_count", 0)  # type: ignore[union-attr]
+        tokens_in = metrics.get("tokens_in_total", 0)  # type: ignore[union-attr]
+        tokens_out = metrics.get("tokens_out_total", 0)  # type: ignore[union-attr]
+        prompt_chars = entry.get("prompt_chars", 0)
 
         for slot in ("p1", "p2"):
             pid = policy_mapping.get(slot, "")
@@ -221,12 +274,18 @@ def build_latency_summaries(
                 acc["fallbacks"] = int(acc["fallbacks"]) + int(fallbacks * share)
                 acc["total_latency"] = int(acc["total_latency"]) + int(total_lat * share)
                 acc["latency_samples"] = int(acc["latency_samples"]) + int(lat_samples * share)
+                acc["tokens_in"] = int(acc["tokens_in"]) + int(tokens_in * share)
+                acc["tokens_out"] = int(acc["tokens_out"]) + int(tokens_out * share)
+                acc["prompt_chars"] = int(acc["prompt_chars"]) + int(int(prompt_chars) * share)  # type: ignore[arg-type]
 
     summaries: list[LatencySummary] = []
     for pid in sorted(per_policy):
         acc = per_policy[pid]
         samples = int(acc["latency_samples"])
         total = int(acc["total_latency"])
+        tok_in = int(acc["tokens_in"])
+        tok_out = int(acc["tokens_out"])
+        cost = estimate_cost_usd(tok_in, tok_out) if (tok_in + tok_out) > 0 else None
         summaries.append(
             LatencySummary(
                 policy_id=pid,
@@ -234,6 +293,10 @@ def build_latency_summaries(
                 total_fallbacks=int(acc["fallbacks"]),
                 average_latency_ms=total / samples if samples > 0 else None,
                 total_latency_ms=total,
+                tokens_in_total=tok_in,
+                tokens_out_total=tok_out,
+                total_prompt_chars=int(acc["prompt_chars"]),
+                estimated_cost_usd=cost,
             )
         )
     return summaries
@@ -283,9 +346,18 @@ def build_report(
                 "total_decisions": summary.total_decisions,
                 "total_fallbacks": summary.total_fallbacks,
                 "fallback_rate": round(summary.fallback_rate, 4),
+                "legality_rate": round(summary.legality_rate, 4),
                 "average_latency_ms": (
                     round(summary.average_latency_ms, 1)
                     if summary.average_latency_ms is not None
+                    else None
+                ),
+                "tokens_in_total": summary.tokens_in_total,
+                "tokens_out_total": summary.tokens_out_total,
+                "total_prompt_chars": summary.total_prompt_chars,
+                "estimated_cost_usd": (
+                    round(summary.estimated_cost_usd, 6)
+                    if summary.estimated_cost_usd is not None
                     else None
                 ),
             }

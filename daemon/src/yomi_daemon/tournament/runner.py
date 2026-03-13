@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -19,6 +20,8 @@ from yomi_daemon.tournament.scheduler import MatchPairing, generate_pairings
 
 
 logger = logging.getLogger(__name__)
+
+MAX_CONCURRENCY = 16
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,7 +57,14 @@ async def run_tournament(
     *,
     match_executor: MatchExecutor | None = None,
 ) -> TournamentResult:
-    """Execute a full tournament: schedule, run matches, compute ratings, report."""
+    """Execute a full tournament: schedule, run matches, compute ratings, report.
+
+    When ``config.concurrency`` > 1, matches run in parallel up to the configured
+    limit using an asyncio semaphore.  Each match gets its own server on an
+    OS-assigned port (``port=0``), so parallel execution does not require port
+    coordination.  Ratings are applied in pairing order after all matches complete
+    to keep results deterministic regardless of execution order.
+    """
     pairings = plan_tournament(config)
     state = TournamentState(
         pairings=pairings,
@@ -62,31 +72,37 @@ async def run_tournament(
     )
 
     executor = match_executor or DaemonMatchExecutor(config.base_runtime_config)
+    effective_concurrency = min(max(config.concurrency, 1), MAX_CONCURRENCY)
 
-    # Run matches sequentially (concurrency=1 for MVP to respect rate limits)
-    for pairing in pairings:
-        match_id = new_match_id()
-        state.match_ids.append(match_id)
+    if effective_concurrency <= 1:
+        # Sequential execution (original path)
+        for pairing in pairings:
+            match_id = new_match_id()
+            state.match_ids.append(match_id)
+            result = await _execute_one(executor, pairing, match_id, config, state)
+            if result is not None:
+                state.rating_table.record_result(result)
+    else:
+        # Parallel execution bounded by semaphore
+        semaphore = asyncio.Semaphore(effective_concurrency)
+        match_id_list: list[str] = []
+        for _ in pairings:
+            mid = new_match_id()
+            match_id_list.append(mid)
+            state.match_ids.append(mid)
 
-        try:
-            result = await executor.execute_match(
-                pairing=pairing,
-                match_id=match_id,
-                runtime_config=config.base_runtime_config,
-            )
-            state.rating_table.record_result(result)
-            state.completed += 1
-            logger.info(
-                "Match %s completed: %s vs %s -> winner=%s",
-                match_id,
-                pairing.p1_policy,
-                pairing.p2_policy,
-                result.winner,
-            )
-        except Exception as exc:
-            msg = f"Match {match_id} failed: {exc}"
-            state.errors.append(msg)
-            logger.error(msg)
+        async def _bounded(pairing: MatchPairing, match_id: str) -> MatchResult | None:
+            async with semaphore:
+                return await _execute_one(executor, pairing, match_id, config, state)
+
+        ordered_results = await asyncio.gather(
+            *(_bounded(p, m) for p, m in zip(pairings, match_id_list)),
+            return_exceptions=False,
+        )
+        # Apply ratings in pairing order for determinism
+        for result in ordered_results:
+            if result is not None:
+                state.rating_table.record_result(result)
 
     # Build report from rating table and collected results
     results = list(_results_from_rating_table(state))
@@ -101,6 +117,36 @@ async def run_tournament(
         match_ids=list(state.match_ids),
         errors=list(state.errors),
     )
+
+
+async def _execute_one(
+    executor: MatchExecutor,
+    pairing: MatchPairing,
+    match_id: str,
+    config: TournamentConfig,
+    state: TournamentState,
+) -> MatchResult | None:
+    """Run a single match and update state.  Returns the result on success."""
+    try:
+        result = await executor.execute_match(
+            pairing=pairing,
+            match_id=match_id,
+            runtime_config=config.base_runtime_config,
+        )
+        state.completed += 1
+        logger.info(
+            "Match %s completed: %s vs %s -> winner=%s",
+            match_id,
+            pairing.p1_policy,
+            pairing.p2_policy,
+            result.winner,
+        )
+        return result
+    except Exception as exc:
+        msg = f"Match {match_id} failed: {exc}"
+        state.errors.append(msg)
+        logger.error(msg)
+        return None
 
 
 def recompute_ratings(
