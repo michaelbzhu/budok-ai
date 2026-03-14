@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -357,7 +358,7 @@ def parse_runtime_config_document(
     overrides: RuntimeConfigOverrides | None = None,
     env: Mapping[str, str] | None = None,
 ) -> DaemonRuntimeConfig:
-    resolved_env = env if env is not None else {}
+    resolved_env = env if env is not None else os.environ
     merged = _apply_overrides(_merge_dicts(_BASE_CONFIG, raw), overrides)
     _validate_document(merged)
 
