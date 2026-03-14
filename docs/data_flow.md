@@ -224,6 +224,19 @@ When the game emits `game_ended` followed by `game_won(winner)`:
 3. `server.py` receives it, breaks the match loop, and calls `writer.finalize()`.
 4. The writer produces `result.json`, `metrics.json`, and `replay_index.json` in the run directory.
 
+## Phase 11: Replay Recording (Optional)
+
+After the match ends, the game automatically replays the match ~120 ticks later — playing back stored inputs without decision-time pauses. This produces a smooth, real-time-looking playback.
+
+1. `TurnHook.gd` calls `ReplayManager.save_replay()` to save the replay file (the game only autosaves for multiplayer, but our mod forces a save for singleplayer matches).
+2. `TurnHook.gd` sets `Global.playback_speed_mod = 1` and monitors for the auto-replay.
+3. When `Global.current_game` changes to a new instance and `ReplayManager.playback` is `true`, the mod sends a `ReplayStarted` event with the display number.
+4. The daemon receives the event and starts `ffmpeg -f x11grab` on the Xvfb display (via `orb run` in the VM).
+5. When the replay game's `game_finished` becomes `true`, the mod sends `ReplayEnded`.
+6. The daemon stops ffmpeg, pulls the video and replay file from the VM into the run directory.
+
+This phase only runs when the daemon is started with `--record-replay`. The mod-side replay saving always occurs.
+
 ## Artifact Layout After A Complete Match
 
 ```
@@ -236,4 +249,6 @@ runs/<timestamp>_<match_id>/
   result.json         ← winner, end reason, turn count, status
   replay_index.json   ← per-turn pointers into decisions and prompts
   stderr.log          ← error output
+  replay.mp4          ← replay video (when --record-replay is enabled)
+  match.replay        ← game replay file (when --record-replay is enabled)
 ```

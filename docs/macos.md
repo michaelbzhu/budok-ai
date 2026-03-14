@@ -13,6 +13,7 @@ YOMI Hustle is only available for Windows and Linux on Steam. On macOS, we run t
 - [x] Step 6: Configure networking (bridge IP: `192.168.139.3`, mod config updated)
 - [x] Step 7: Start the daemon
 - [x] Step 8: Launch the game headlessly (596-decision match completed to KO, baseline/random)
+- [ ] Step 9: Test replay video recording (--record-replay flag, ffmpeg x11grab)
 
 ## Architecture
 
@@ -71,13 +72,13 @@ This uses Rosetta 2 for x86-64 translation (~70-85% native speed — plenty for 
 orb run -m ubuntu bash -c "\
   sudo apt-get update -qq && \
   sudo apt-get install -y \
-    xvfb libgl1 mesa-utils unzip scrot \
+    xvfb libgl1 mesa-utils unzip scrot ffmpeg \
     libx11-6 libxcursor1 libxinerama1 libxrandr2 libxi6 \
     libgles2-mesa libegl1-mesa libgl1-mesa-dri \
     libpulse0 libasound2"
 ```
 
-The `libpulse0` and `libasound2` packages prevent audio library load errors (the game falls back to a dummy audio driver regardless, but having the libs avoids noisy warnings). `scrot` is used for taking debug screenshots of the virtual display.
+The `libpulse0` and `libasound2` packages prevent audio library load errors (the game falls back to a dummy audio driver regardless, but having the libs avoids noisy warnings). `scrot` is used for taking debug screenshots of the virtual display. `ffmpeg` is required for replay video recording.
 
 ## Step 4: Download the game files
 
@@ -213,11 +214,25 @@ uv run --project daemon yomi-daemon --host 0.0.0.0 --port 8765
 
 ## Step 8: Launch the game headlessly in the VM
 
+Use a fixed display (`:99`) so that replay video recording can find the display reliably:
+
 ```bash
 orb shell -m ubuntu
 
 export LIBGL_ALWAYS_SOFTWARE=1
 export LD_LIBRARY_PATH=$HOME/games/yomi:$LD_LIBRARY_PATH
+
+# Start Xvfb on a fixed display
+Xvfb :99 -screen 0 1280x720x24 &
+sleep 1
+
+# Launch the game
+DISPLAY=:99 ~/games/yomi/YourOnlyMoveIsHUSTLE.x86_64
+```
+
+Alternatively, `xvfb-run` still works but makes replay recording harder (dynamic display, Xauthority):
+
+```bash
 xvfb-run --auto-servernum --server-args="-screen 0 1280x720x24" \
   ~/games/yomi/YourOnlyMoveIsHUSTLE.x86_64
 ```
@@ -235,10 +250,17 @@ The full automated flow is:
 
 No manual menu interaction is needed.
 
-To take a debug screenshot, you need both the correct display number and the Xauthority file created by `xvfb-run`:
+To take a debug screenshot when using a fixed display (`:99`):
 
 ```bash
-# Find the display and correct Xauthority
+orb run -m ubuntu bash -c 'DISPLAY=:99 scrot /tmp/yomi_debug.png'
+orb pull -m ubuntu /tmp/yomi_debug.png /tmp/yomi_debug.png
+open /tmp/yomi_debug.png
+```
+
+If you used `xvfb-run` instead, you need the Xauthority file it created:
+
+```bash
 orb run -m ubuntu bash -c '
 DISP=:$(ls /tmp/.X11-unix/ | tail -1 | tr -d "X")
 for xauth in /tmp/xvfb-run.*/Xauthority; do
@@ -320,6 +342,8 @@ Available built-in characters: `Ninja`, `Cowboy`, `Wizard`, `Robot`, `Mutant`.
 orb run -m ubuntu bash -c "killall Xvfb 2>/dev/null; rm -f /tmp/.X*-lock /tmp/.X11-unix/X*"
 ```
 
+**Singleplayer replay saving**: The game only autosaves replays for multiplayer matches. The mod now explicitly calls `ReplayManager.save_replay()` after every singleplayer match. This was needed because our matches use singleplayer mode.
+
 **Default policy**: By default both players use `baseline/random`. To use an LLM, edit the `policy_mapping` in `daemon/config/default_config.json`:
 
 ```json
@@ -338,6 +362,75 @@ Results land in `runs/<timestamp>_<match_id>/` on the Mac (where the daemon runs
 - `prompts.jsonl` — every prompt sent to LLMs
 - `metrics.json` — latency, fallback rate, legality
 - `result.json` — winner, final HP
+- `replay.mp4` — replay video (when `--record-replay` enabled)
+- `match.replay` — game replay file (when `--record-replay` enabled)
+
+## Replay video recording
+
+After a match ends, the game automatically replays it without decision-time pauses — it looks like a real-time fighting game. The mod detects this replay playback and signals the daemon to record it via ffmpeg.
+
+### How it works
+
+1. Match ends → mod saves a `.replay` file via `ReplayManager.save_replay()`
+2. Mod sends a `ReplaySaved` event to the daemon with the file path
+3. ~120 ticks later, the game auto-starts replay playback
+4. Mod detects `ReplayManager.playback == true` on the new game instance
+5. Mod sends `ReplayStarted` event → daemon starts `ffmpeg -f x11grab` on the Xvfb display
+6. Replay finishes → mod sends `ReplayEnded` → daemon stops ffmpeg
+7. Daemon pulls the video and replay file from the VM into `runs/<match>/`
+
+### Prerequisites
+
+- `ffmpeg` installed in the VM (included in Step 3)
+- Game launched on a fixed Xvfb display (`:99`, as in Step 8)
+- Daemon started with `--record-replay`
+
+### Running with replay recording
+
+**Daemon side** (on your Mac):
+
+```bash
+uv run --project daemon yomi-daemon --host 0.0.0.0 --port 8765 --record-replay
+```
+
+**Game side** (in the VM):
+
+```bash
+orb shell -m ubuntu
+
+export LIBGL_ALWAYS_SOFTWARE=1
+export LD_LIBRARY_PATH=$HOME/games/yomi:$LD_LIBRARY_PATH
+
+Xvfb :99 -screen 0 1280x720x24 &
+sleep 1
+
+DISPLAY=:99 ~/games/yomi/YourOnlyMoveIsHUSTLE.x86_64
+```
+
+After the match completes and the replay plays through, the daemon will save:
+- `runs/<match>/replay.mp4` — the replay video
+- `runs/<match>/match.replay` — the game's replay file (can be loaded in the game)
+
+### Optional: custom display or VM name
+
+```bash
+uv run --project daemon yomi-daemon --host 0.0.0.0 --record-replay \
+  --replay-display :42 --replay-vm my-ubuntu-vm
+```
+
+### Replay file saving
+
+Even without `--record-replay`, the mod now saves replay files after every match. The game normally only autosaves replays for multiplayer matches, but our mod calls `ReplayManager.save_replay()` explicitly for singleplayer matches. The replay path is reported in the `match_ended` envelope and recorded in `result.json`.
+
+Replay files are saved to `user://replay/autosave/` inside the VM, which resolves to `~/.local/share/godot/app_userdata/Your Only Move Is HUSTLE/replay/autosave/`.
+
+### Troubleshooting
+
+**ffmpeg can't connect to display**: Make sure the game is launched on `:99` (not via `xvfb-run --auto-servernum`). When using `xvfb-run`, the display number is dynamic and ffmpeg can't find it.
+
+**Video is black**: The game must be rendering to the virtual display. Verify with `DISPLAY=:99 scrot /tmp/test.png` from the VM.
+
+**Recording never starts**: The replay only begins ~120 ticks after the match ends. The mod waits up to 60 seconds for replay detection. Check daemon logs for `ReplayStarted` events.
 
 ## OrbStack CLI reference
 

@@ -10,6 +10,7 @@ from pathlib import Path
 
 from yomi_daemon import __version__
 from yomi_daemon.config import ConfigError, RuntimeConfigOverrides, load_runtime_config
+from yomi_daemon.replay_capture import ReplayCaptureConfig
 from yomi_daemon.server import DaemonServer
 
 
@@ -50,6 +51,22 @@ def build_argument_parser() -> argparse.ArgumentParser:
         choices=("DEBUG", "INFO", "WARNING", "ERROR"),
         help="Daemon log verbosity.",
     )
+    parser.add_argument(
+        "--record-replay",
+        action="store_true",
+        default=False,
+        help="Record replay video via ffmpeg in the OrbStack VM after match ends.",
+    )
+    parser.add_argument(
+        "--replay-vm",
+        default="ubuntu",
+        help="OrbStack VM machine name for replay recording (default: ubuntu).",
+    )
+    parser.add_argument(
+        "--replay-display",
+        default=":99",
+        help="X display for replay recording (default: :99).",
+    )
     return parser
 
 
@@ -64,6 +81,11 @@ async def _run_async(args: argparse.Namespace) -> int:
             trace_seed=args.trace_seed,
         ),
     )
+    replay_capture_config = ReplayCaptureConfig(
+        enabled=args.record_replay,
+        vm_machine=args.replay_vm,
+        display=args.replay_display,
+    )
     server = DaemonServer(
         host=runtime_config.transport.host,
         port=runtime_config.transport.port,
@@ -71,6 +93,7 @@ async def _run_async(args: argparse.Namespace) -> int:
         config_snapshot=runtime_config.to_config_payload(),
         runtime_config=runtime_config,
         auth_secret=runtime_config.transport.auth_secret,
+        replay_capture_config=replay_capture_config,
     )
     await server.start()
     try:

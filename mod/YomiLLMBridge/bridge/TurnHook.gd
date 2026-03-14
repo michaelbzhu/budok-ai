@@ -34,6 +34,12 @@ var _compatibility_signature = ""
 var _match_end_pending = {}
 var _match_ended = false
 var _replay_snapshot = {}
+var _replay_saved = false
+var _awaiting_replay = false
+var _replay_recording = false
+var _replay_wait_started_ms = 0
+var _original_game_id = 0
+var _replay_game = null
 
 # Pending requests keyed by "p1_turnid" or "p2_turnid" for correlation
 var _pending_requests = {}
@@ -63,6 +69,10 @@ func attach(bridge_client, config: Dictionary) -> void:
 
 
 func _process(_delta: float) -> void:
+	# Post-match: monitor for replay lifecycle
+	if _match_ended:
+		_monitor_replay_lifecycle()
+		return
 	if _game_connected:
 		_check_timeouts()
 		return
@@ -421,6 +431,10 @@ func _finalize_match(payload: Dictionary) -> void:
 	_publish_status("match_ended", true, [], _status_snapshot.get("details", {}), payload)
 	print("YomiLLMBridge match ended: %s" % payload)
 
+	# Save replay and begin monitoring for auto-replay playback
+	_save_replay()
+	_begin_replay_monitoring()
+
 
 func _build_match_ended_payload(winner_override) -> Dictionary:
 	var payload = {
@@ -476,6 +490,88 @@ func _derive_end_frame() -> int:
 	if _game == null:
 		return 0
 	return int(_game.current_tick)
+
+
+func _save_replay() -> void:
+	if _replay_saved or _game == null:
+		return
+	if not _game.has_method("get") and not ("match_data" in _game):
+		printerr("YomiLLMBridge cannot save replay: game has no match_data")
+		return
+
+	var match_data = {}
+	if "match_data" in _game:
+		match_data = _game.match_data.duplicate(true) if _game.match_data is Dictionary else {}
+
+	var timestamp = OS.get_unix_time()
+	var file_name = "llm_%s_%d" % [_match_id.substr(0, 8), timestamp]
+	ReplayManager.save_replay(match_data, file_name, true)
+	_replay_saved = true
+
+	var replay_path = _find_replay_path()
+	if replay_path != null:
+		print("YomiLLMBridge replay saved: %s" % replay_path)
+		_telemetry.emit_replay_saved(replay_path)
+	else:
+		print("YomiLLMBridge replay save called but file not found")
+
+
+func _begin_replay_monitoring() -> void:
+	if _game == null:
+		return
+	_original_game_id = _game.get_instance_id()
+	_awaiting_replay = true
+	_replay_recording = false
+	_replay_game = null
+	_replay_wait_started_ms = OS.get_ticks_msec()
+	# Set normal playback speed for recording quality
+	Global.playback_speed_mod = 1
+	print("YomiLLMBridge waiting for auto-replay playback...")
+
+
+func _monitor_replay_lifecycle() -> void:
+	if _awaiting_replay:
+		# Check timeout (60 seconds to wait for auto-replay)
+		if OS.get_ticks_msec() - _replay_wait_started_ms > 60000:
+			print("YomiLLMBridge replay wait timed out")
+			_awaiting_replay = false
+			return
+
+		# Check if a new game started in replay mode
+		if not _has_global_game():
+			return
+		if Global.current_game == null:
+			return
+		if Global.current_game.get_instance_id() == _original_game_id:
+			return
+		if not ("playback" in ReplayManager):
+			return
+		if not ReplayManager.playback:
+			return
+		if not Global.current_game.game_started:
+			return
+
+		# Replay playback has started
+		_awaiting_replay = false
+		_replay_recording = true
+		_replay_game = Global.current_game
+		var display = OS.get_environment("DISPLAY")
+		if display == "":
+			display = ":99"
+		print("YomiLLMBridge replay playback detected on display %s" % display)
+		_telemetry.emit_replay_started(display)
+
+	elif _replay_recording:
+		# Monitor for replay end
+		if _replay_game == null or not is_instance_valid(_replay_game):
+			print("YomiLLMBridge replay game freed, recording complete")
+			_replay_recording = false
+			_telemetry.emit_replay_ended()
+			return
+		if _replay_game.game_finished:
+			print("YomiLLMBridge replay playback finished")
+			_replay_recording = false
+			_telemetry.emit_replay_ended()
 
 
 func _find_replay_path():

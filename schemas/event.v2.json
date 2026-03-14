@@ -19,6 +19,9 @@
         "DecisionApplied",
         "DecisionFallback",
         "MatchEnded",
+        "ReplaySaved",
+        "ReplayStarted",
+        "ReplayEnded",
         "Error"
       ]
     },

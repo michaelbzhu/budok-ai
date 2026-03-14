@@ -106,6 +106,28 @@ func emit_match_ended(
 	_emit_envelope("match_ended", payload)
 
 
+func emit_replay_saved(replay_path: String) -> void:
+	_emit_event("ReplaySaved", {
+		"details": {
+			"replay_path": replay_path,
+		},
+	})
+
+
+func emit_replay_started(display: String) -> void:
+	_emit_event("ReplayStarted", {
+		"details": {
+			"display": display,
+		},
+	})
+
+
+func emit_replay_ended() -> void:
+	_emit_event("ReplayEnded", {
+		"details": {},
+	})
+
+
 func emit_error(
 	error_message: String,
 	turn_id: int = -1,

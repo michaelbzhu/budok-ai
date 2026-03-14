@@ -29,6 +29,7 @@ This document covers daemon and mod runtime architecture. The normative source r
 | `adapters/` | Provider and baseline policy adapters |
 | `storage/` | Artifact writing and replay index construction |
 | `logging/` | Structured logging schemas |
+| `replay_capture.py` | FFmpeg-based replay video recording via OrbStack VM |
 | `tournament/` | Round-robin scheduling, match execution, Elo ratings, reporting |
 
 ## Adapter Registry

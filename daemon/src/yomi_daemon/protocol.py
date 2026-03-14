@@ -49,6 +49,9 @@ class EventName(StrEnum):
     DECISION_APPLIED = "DecisionApplied"
     DECISION_FALLBACK = "DecisionFallback"
     MATCH_ENDED = "MatchEnded"
+    REPLAY_SAVED = "ReplaySaved"
+    REPLAY_STARTED = "ReplayStarted"
+    REPLAY_ENDED = "ReplayEnded"
     ERROR = "Error"
 
 

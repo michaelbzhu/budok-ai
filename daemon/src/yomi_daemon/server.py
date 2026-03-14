@@ -38,6 +38,7 @@ from yomi_daemon.protocol import (
     SUPPORTED_PROTOCOL_VERSIONS,
 )
 from yomi_daemon.redact import redact_secrets
+from yomi_daemon.replay_capture import ReplayCaptureConfig, ReplayCaptureSession
 from yomi_daemon.storage.writer import MatchArtifactWriter
 from yomi_daemon.validation import ProtocolValidationError, parse_envelope
 
@@ -70,12 +71,14 @@ class DaemonServer:
         config_snapshot: ConfigPayload | None = None,
         runtime_config: "DaemonRuntimeConfig | None" = None,
         auth_secret: str | None = None,
+        replay_capture_config: ReplayCaptureConfig | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self.host = host
         self.port = port
         self._runtime_config = runtime_config
         self._auth_secret = auth_secret
+        self._replay_capture_config = replay_capture_config or ReplayCaptureConfig()
         self.runtime_config = ServerRuntimeConfig(
             policy_mapping=policy_mapping
             if policy_mapping is not None
@@ -315,7 +318,7 @@ class DaemonServer:
             if writer is not None:
                 writer.append_stderr(f"{msg}\n")
 
-        # Finalize artifacts
+        # Finalize match artifacts (decisions, prompts, result)
         if writer is not None:
             writer.finalize(
                 match_ended=(
@@ -333,6 +336,16 @@ class DaemonServer:
                 match_id,
                 writer.result_path,
             )
+
+            # Handle post-match replay recording if enabled
+            if match_ended_payload is not None and self._replay_capture_config.enabled:
+                await self._handle_replay_capture(
+                    session=session,
+                    connection=connection,
+                    match_id=match_id or "",
+                    writer=writer,
+                    replay_path=match_ended_payload.replay_path,
+                )
         else:
             self.logger.info(
                 "Session %s closed without any decision requests",
@@ -445,6 +458,87 @@ class DaemonServer:
             decision.action,
             used_fallback,
         )
+
+    async def _handle_replay_capture(
+        self,
+        *,
+        session: MatchSession,
+        connection: ServerConnection,
+        match_id: str,
+        writer: MatchArtifactWriter,
+        replay_path: str | None,
+    ) -> None:
+        """Wait for replay lifecycle events and record replay video."""
+
+        capture = ReplayCaptureSession(
+            config=self._replay_capture_config,
+            match_id=match_id,
+            run_dir=writer.run_dir,
+            logger=self.logger,
+        )
+
+        # Pull the .replay file if available
+        if replay_path:
+            await capture.pull_replay_file(replay_path)
+
+        self.logger.info(
+            "Session %s: waiting for replay events (timeout 120s)...",
+            session.session_id,
+        )
+
+        try:
+            async with asyncio.timeout(120):
+                async for raw_message in connection:
+                    if not isinstance(raw_message, str):
+                        continue
+
+                    try:
+                        raw_data = json.loads(raw_message)
+                    except json.JSONDecodeError:
+                        continue
+
+                    try:
+                        envelope = parse_envelope(raw_data)
+                    except ProtocolValidationError:
+                        continue
+
+                    if envelope.type is not MessageType.EVENT:
+                        continue
+
+                    event = cast(Event, envelope.payload)
+
+                    if event.event is EventName.REPLAY_STARTED:
+                        display = str(
+                            event.details.get("display", self._replay_capture_config.display)
+                        )
+                        self.logger.info(
+                            "Session %s: replay started on display %s, beginning recording",
+                            session.session_id,
+                            display,
+                        )
+                        await capture.start_recording(display=display)
+
+                    elif event.event is EventName.REPLAY_ENDED:
+                        self.logger.info(
+                            "Session %s: replay ended, stopping recording",
+                            session.session_id,
+                        )
+                        video_path = await capture.stop_recording()
+                        if video_path:
+                            self.logger.info("Replay video saved to %s", video_path)
+                        await capture.cleanup()
+                        break
+
+        except (TimeoutError, ConnectionClosed):
+            self.logger.info(
+                "Session %s: replay capture phase ended (timeout or disconnect)",
+                session.session_id,
+            )
+            if capture.is_recording:
+                video_path = await capture.stop_recording()
+                if video_path:
+                    self.logger.info("Replay video saved to %s (after timeout)", video_path)
+            await capture.cleanup()
 
     async def _perform_handshake(
         self,
