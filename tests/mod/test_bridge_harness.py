@@ -50,8 +50,7 @@ def test_mod_default_config_exposes_local_bridge_settings() -> None:
         "schema_version": "v2",
         "supported_versions": ["v2"],
     }
-    assert config["timeout_profile"] == "strict_local"
-    assert config["decision_timeout_ms"] == 2500
+    assert config["decision_timeout_ms"] == 15000
     assert config["fallback_mode"] == "safe_continue"
     assert config["logging"] == {
         "events": True,

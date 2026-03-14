@@ -255,7 +255,6 @@ def _reconfigure_for_pairing(
     return DaemonRuntimeConfig(
         version=base.version,
         transport=base.transport,
-        timeout_profile=base.timeout_profile,
         decision_timeout_ms=base.decision_timeout_ms,
         fallback_mode=base.fallback_mode,
         logging=base.logging,

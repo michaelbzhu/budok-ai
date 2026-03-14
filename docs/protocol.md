@@ -209,7 +209,6 @@ The fallback-reason enum is:
 
 `config.v2.json` is the wire-safe config snapshot used during handshake and run pinning. It is intentionally narrower than later daemon file-loading concerns and currently includes:
 
-- `timeout_profile`
 - `decision_timeout_ms`
 - `fallback_mode`
 - `logging`

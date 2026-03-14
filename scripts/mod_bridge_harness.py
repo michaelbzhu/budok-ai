@@ -40,8 +40,7 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8765
 DEFAULT_SCHEMA_VERSION = CURRENT_SCHEMA_VERSION
 DEFAULT_SUPPORTED_VERSIONS = (CURRENT_PROTOCOL_VERSION.value,)
-DEFAULT_TIMEOUT_PROFILE = "strict_local"
-DEFAULT_DECISION_TIMEOUT_MS = 2500
+DEFAULT_DECISION_TIMEOUT_MS = 10000
 DEFAULT_FALLBACK_MODE = "safe_continue"
 DEFAULT_GAME_VERSION = "supported-build-16151810"
 
@@ -87,7 +86,6 @@ def load_mod_config(path: Path = DEFAULT_CONFIG_PATH) -> dict[str, Any]:
             "supported_versions": list(supported_versions),
         },
         "game_version": str(raw.get("game_version", DEFAULT_GAME_VERSION)),
-        "timeout_profile": str(raw.get("timeout_profile", DEFAULT_TIMEOUT_PROFILE)),
         "decision_timeout_ms": int(
             raw.get("decision_timeout_ms", DEFAULT_DECISION_TIMEOUT_MS)
         ),

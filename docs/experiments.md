@@ -148,7 +148,7 @@ Baseline-only runs are fully deterministic. To reproduce a run exactly, reuse:
 
 - `trace_seed` from the original `manifest.json`
 - `match_id`
-- Full config (policy_mapping, fallback_mode, timeout_profile)
+- Full config (policy_mapping, fallback_mode, decision_timeout_ms)
 
 ```bash
 scripts/run_local_match.sh \
@@ -237,7 +237,6 @@ When enabled, a bounded correction prompt is sent if the first response fails pa
 
 ```json
 {
-  "timeout_profile": "llm_tournament",
   "policies": {
     "anthropic/minimal": {
       "provider": "anthropic",

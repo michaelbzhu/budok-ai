@@ -17,7 +17,6 @@ from yomi_daemon.protocol import (
     CURRENT_SCHEMA_VERSION,
     CharacterSelectionMode,
     FallbackMode,
-    TimeoutProfile,
 )
 
 
@@ -48,8 +47,7 @@ def test_load_runtime_config_defaults_and_env_credentials() -> None:
 
     assert config.transport.host == "127.0.0.1"
     assert config.transport.port == 8765
-    assert config.timeout_profile is TimeoutProfile.STRICT_LOCAL
-    assert config.decision_timeout_ms == 2500
+    assert config.decision_timeout_ms == 10000
     assert config.fallback_mode is FallbackMode.SAFE_CONTINUE
     assert config.character_selection.mode is CharacterSelectionMode.MIRROR
     assert (
@@ -72,15 +70,6 @@ def test_load_runtime_config_from_default_file() -> None:
 @pytest.mark.parametrize(
     ("document", "message"),
     [
-        (
-            {
-                "version": "v1",
-                "timeout_profile": "arcade",
-                "policy_mapping": {"p1": "baseline/random", "p2": "baseline/random"},
-                "policies": {"baseline/random": {"provider": "baseline"}},
-            },
-            "runtime config validation failed at timeout_profile",
-        ),
         (
             {
                 "version": "v1",
@@ -171,5 +160,5 @@ def test_manifest_generation_pins_required_metadata_fields() -> None:
         "credential_env_var": "OPENAI_API_KEY",
         "credential_configured": True,
     }
-    assert config_snapshot["decision_timeout_ms"] == 2500
+    assert config_snapshot["decision_timeout_ms"] == 10000
     assert config_snapshot["stage_id"] == "training_room"

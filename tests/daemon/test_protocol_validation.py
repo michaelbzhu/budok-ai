@@ -36,7 +36,6 @@ from yomi_daemon.protocol import (
     PlayerPolicyMapping,
     ProtocolModel,
     ProtocolPayload,
-    TimeoutProfile,
     Vector2,
     canonical_json,
     canonical_sha256,
@@ -60,7 +59,6 @@ CANONICAL_FIXTURES_PATH = (
 
 def build_config() -> ConfigPayload:
     return ConfigPayload(
-        timeout_profile=TimeoutProfile.STRICT_LOCAL,
         decision_timeout_ms=2500,
         fallback_mode=FallbackMode.SAFE_CONTINUE,
         logging=LoggingConfig(events=True, prompts=True, raw_provider_payloads=False),

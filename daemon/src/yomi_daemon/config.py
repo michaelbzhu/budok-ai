@@ -19,8 +19,8 @@ from yomi_daemon.protocol import (
     FallbackMode,
     JsonObject,
     LoggingConfig,
+    MatchOptions,
     PlayerPolicyMapping,
-    TimeoutProfile,
 )
 from yomi_daemon.validation import REPO_ROOT, load_schema
 
@@ -28,19 +28,10 @@ from yomi_daemon.validation import REPO_ROOT, load_schema
 CONFIG_SCHEMA_FILE = "daemon-config.v1.json"
 DEFAULT_RUNTIME_CONFIG_PATH = REPO_ROOT / "daemon" / "config" / "default_config.json"
 
-TIMEOUT_PROFILE_DEFAULTS: dict[TimeoutProfile, int] = {
-    TimeoutProfile.STRICT_LOCAL: 2500,
-    TimeoutProfile.LLM_TOURNAMENT: 10000,
-}
-TIMEOUT_PROFILE_MAXIMUMS: dict[TimeoutProfile, int] = {
-    TimeoutProfile.STRICT_LOCAL: 2500,
-    TimeoutProfile.LLM_TOURNAMENT: 15000,
-}
-
 _BASE_CONFIG: dict[str, object] = {
     "version": "v1",
     "transport": {"host": "127.0.0.1", "port": 8765},
-    "timeout_profile": TimeoutProfile.STRICT_LOCAL.value,
+    "decision_timeout_ms": 10000,
     "fallback_mode": FallbackMode.SAFE_CONTINUE.value,
     "logging": {
         "events": True,
@@ -113,7 +104,6 @@ class RuntimeConfigOverrides:
 class DaemonRuntimeConfig:
     version: str
     transport: TransportConfig
-    timeout_profile: TimeoutProfile
     decision_timeout_ms: int
     fallback_mode: FallbackMode
     logging: LoggingConfig
@@ -123,16 +113,17 @@ class DaemonRuntimeConfig:
     tournament: TournamentDefaults
     trace_seed: int
     stage_id: str | None = None
+    match_options: MatchOptions | None = None
 
     def to_config_payload(self) -> ConfigPayload:
         return ConfigPayload(
-            timeout_profile=self.timeout_profile,
             decision_timeout_ms=self.decision_timeout_ms,
             fallback_mode=self.fallback_mode,
             logging=self.logging,
             policy_mapping=self.policy_mapping,
             character_selection=self.character_selection,
             stage_id=self.effective_stage_id,
+            match_options=self.match_options,
         )
 
     @property
@@ -244,22 +235,15 @@ def _load_config_document(path: Path) -> Mapping[str, object]:
     return _require_mapping(raw, context=f"runtime config file {path}")
 
 
-def _resolve_timeout(
-    document: Mapping[str, object], profile: TimeoutProfile, *, context: str
-) -> int:
+def _resolve_timeout(document: Mapping[str, object], *, context: str) -> int:
     raw_timeout = document.get("decision_timeout_ms")
     timeout_ms = (
-        TIMEOUT_PROFILE_DEFAULTS[profile]
+        10000
         if raw_timeout is None
         else _require_int(raw_timeout, context=f"{context}.decision_timeout_ms")
     )
     if timeout_ms < 1:
         raise ConfigError(f"{context}.decision_timeout_ms must be at least 1")
-    if timeout_ms > TIMEOUT_PROFILE_MAXIMUMS[profile]:
-        raise ConfigError(
-            f"{context}.decision_timeout_ms must be <= {TIMEOUT_PROFILE_MAXIMUMS[profile]} "
-            f"for timeout profile {profile.value!r}"
-        )
     return timeout_ms
 
 
@@ -355,6 +339,12 @@ def _resolve_tournament_defaults(raw: object, *, context: str) -> TournamentDefa
     )
 
 
+def _resolve_match_options(raw: object, *, context: str) -> MatchOptions | None:
+    if raw is None:
+        return None
+    return MatchOptions.from_dict(raw, context=context)
+
+
 def _validate_document(document: Mapping[str, object]) -> None:
     error = best_match(_config_validator().iter_errors(document))
     if error is not None:
@@ -375,9 +365,6 @@ def parse_runtime_config_document(
     policies = _resolve_policies(
         merged.get("policies"), context=f"{context}.policies", env=resolved_env
     )
-    timeout_profile = TimeoutProfile(
-        _require_string(merged.get("timeout_profile"), context=f"{context}.timeout_profile")
-    )
     transport = _require_mapping(merged.get("transport"), context=f"{context}.transport")
     auth_secret_env_var = _optional_string(
         transport.get("auth_secret_env_var"), context=f"{context}.transport.auth_secret_env_var"
@@ -391,8 +378,7 @@ def parse_runtime_config_document(
             port=_require_int(transport.get("port"), context=f"{context}.transport.port"),
             auth_secret=auth_secret,
         ),
-        timeout_profile=timeout_profile,
-        decision_timeout_ms=_resolve_timeout(merged, timeout_profile, context=context),
+        decision_timeout_ms=_resolve_timeout(merged, context=context),
         fallback_mode=FallbackMode(
             _require_string(merged.get("fallback_mode"), context=f"{context}.fallback_mode")
         ),
@@ -413,6 +399,9 @@ def parse_runtime_config_document(
         ),
         trace_seed=_require_int(merged.get("trace_seed"), context=f"{context}.trace_seed"),
         stage_id=_optional_string(merged.get("stage_id"), context=f"{context}.stage_id"),
+        match_options=_resolve_match_options(
+            merged.get("match_options"), context=f"{context}.match_options"
+        ),
     )
 
 
@@ -454,7 +443,6 @@ def config_to_json_object(config: DaemonRuntimeConfig) -> JsonObject:
             "port": config.transport.port,
             "auth_configured": config.transport.auth_secret is not None,
         },
-        "timeout_profile": config.timeout_profile.value,
         "decision_timeout_ms": config.decision_timeout_ms,
         "fallback_mode": config.fallback_mode.value,
         "logging": config.logging.to_dict(),
@@ -470,4 +458,5 @@ def config_to_json_object(config: DaemonRuntimeConfig) -> JsonObject:
         },
         "trace_seed": config.trace_seed,
         "stage_id": config.stage_id,
+        "match_options": config.match_options.to_dict() if config.match_options else None,
     }

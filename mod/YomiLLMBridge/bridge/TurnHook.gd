@@ -355,6 +355,9 @@ func _attach_to_game(game, compatibility: Dictionary) -> void:
 	_game.connect("game_won", self, "_on_game_won")
 	_game_connected = true
 
+	# Apply match_options overrides before any turns fire
+	_apply_match_options()
+
 	# Configure telemetry now that we have a match_id
 	_telemetry.configure(_bridge_client, _config, _match_id)
 
@@ -363,6 +366,20 @@ func _attach_to_game(game, compatibility: Dictionary) -> void:
 
 	# If players are already actionable (signal fired before we attached), trigger immediately
 	call_deferred("_check_already_actionable")
+
+
+func _apply_match_options() -> void:
+	var match_options = _config.get("match_options", {})
+	if not (match_options is Dictionary) or match_options.empty():
+		return
+
+	var starting_hp = match_options.get("starting_hp", null)
+	if starting_hp != null and int(starting_hp) > 0:
+		var hp_value = int(starting_hp)
+		for fighter in [_game.p1, _game.p2]:
+			fighter.MAX_HEALTH = hp_value
+			fighter.hp = hp_value
+		print("YomiLLMBridge applied starting_hp=%d to both fighters" % hp_value)
 
 
 func _publish_compatibility_failure(compatibility: Dictionary) -> void:

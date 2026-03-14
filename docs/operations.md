@@ -244,7 +244,7 @@ Baseline (non-provider) runs are fully deterministic given the same inputs:
 
 - **`trace_seed`**: set in the runtime config. Combined with `match_id`, `player_id`, `turn_id`, `state_hash`, and `legal_actions_hash` to derive per-turn RNG seeds.
 - **`match_id`**: part of the seed material. Same `match_id` + same `trace_seed` + same config → identical decisions.
-- **Config**: `policy_mapping`, `fallback_mode`, and `timeout_profile` all affect behavior.
+- **Config**: `policy_mapping`, `fallback_mode`, and `decision_timeout_ms` all affect behavior.
 
 To reproduce a baseline run exactly, reuse the `trace_seed`, `match_id`, and full config from the original `manifest.json`.
 

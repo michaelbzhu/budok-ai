@@ -30,14 +30,9 @@
         }
       }
     },
-    "timeout_profile": {
-      "type": "string",
-      "enum": ["strict_local", "llm_tournament"]
-    },
     "decision_timeout_ms": {
       "type": "integer",
-      "minimum": 1,
-      "maximum": 15000
+      "minimum": 1
     },
     "fallback_mode": {
       "type": "string",
@@ -177,6 +172,18 @@
     "stage_id": {
       "type": ["string", "null"],
       "minLength": 1
+    },
+    "match_options": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "starting_hp": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "maximum": 10000,
+          "description": "Override starting and max HP for both fighters. Game default is 1500."
+        }
+      }
     }
   }
 }

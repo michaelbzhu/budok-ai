@@ -4,8 +4,7 @@ const DEFAULT_HOST := "127.0.0.1"
 const DEFAULT_PORT := 8765
 const DEFAULT_SCHEMA_VERSION := "v2"
 const DEFAULT_SUPPORTED_VERSIONS := ["v2"]
-const DEFAULT_TIMEOUT_PROFILE := "strict_local"
-const DEFAULT_DECISION_TIMEOUT_MS := 2500
+const DEFAULT_DECISION_TIMEOUT_MS := 10000
 const DEFAULT_FALLBACK_MODE := "safe_continue"
 const DEFAULT_GAME_VERSION := "supported-build-16151810"
 
@@ -85,8 +84,28 @@ func _on_bridge_state_changed(state: String, details: Dictionary) -> void:
 
 func _on_handshake_completed(hello_ack: Dictionary) -> void:
 	print("YomiLLMBridge handshake complete: %s" % hello_ack.get("payload", {}))
+	_merge_daemon_config(hello_ack)
 	_attach_turn_hook()
 	_auto_start_match(hello_ack)
+
+
+func _merge_daemon_config(hello_ack: Dictionary) -> void:
+	var payload = hello_ack.get("payload", {})
+	if not (payload is Dictionary):
+		return
+	var daemon_config = payload.get("config", {})
+	if not (daemon_config is Dictionary):
+		return
+
+	# Override decision_timeout_ms from daemon config
+	if daemon_config.has("decision_timeout_ms"):
+		bridge_config["decision_timeout_ms"] = int(daemon_config["decision_timeout_ms"])
+		print("YomiLLMBridge merged decision_timeout_ms=%d from daemon" % bridge_config["decision_timeout_ms"])
+
+	# Merge match_options from daemon config
+	if daemon_config.has("match_options") and daemon_config["match_options"] is Dictionary:
+		bridge_config["match_options"] = daemon_config["match_options"]
+		print("YomiLLMBridge merged match_options=%s from daemon" % daemon_config["match_options"])
 
 
 func _on_handshake_failed(reason: String) -> void:
@@ -154,7 +173,6 @@ func _normalize_config(raw_config: Dictionary) -> Dictionary:
 			"supported_versions": DEFAULT_SUPPORTED_VERSIONS.duplicate(),
 		},
 		"game_version": DEFAULT_GAME_VERSION,
-		"timeout_profile": DEFAULT_TIMEOUT_PROFILE,
 		"decision_timeout_ms": DEFAULT_DECISION_TIMEOUT_MS,
 		"fallback_mode": DEFAULT_FALLBACK_MODE,
 		"logging": {
@@ -188,9 +206,6 @@ func _normalize_config(raw_config: Dictionary) -> Dictionary:
 		)
 
 	normalized["game_version"] = str(raw_config.get("game_version", DEFAULT_GAME_VERSION))
-	normalized["timeout_profile"] = str(
-		raw_config.get("timeout_profile", DEFAULT_TIMEOUT_PROFILE)
-	)
 	normalized["decision_timeout_ms"] = int(
 		raw_config.get("decision_timeout_ms", DEFAULT_DECISION_TIMEOUT_MS)
 	)

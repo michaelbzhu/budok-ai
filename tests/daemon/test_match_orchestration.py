@@ -31,7 +31,6 @@ from yomi_daemon.protocol import (
     LoggingConfig,
     MessageType,
     PlayerPolicyMapping,
-    TimeoutProfile,
 )
 from yomi_daemon.server import DaemonServer
 from yomi_daemon.storage.writer import RUNS_DIR
@@ -60,7 +59,6 @@ def _baseline_runtime_config(
     return DaemonRuntimeConfig(
         version="v1",
         transport=TransportConfig(host="127.0.0.1", port=0),
-        timeout_profile=TimeoutProfile.STRICT_LOCAL,
         decision_timeout_ms=2500,
         fallback_mode=FallbackMode.SAFE_CONTINUE,
         logging=LoggingConfig(events=True, prompts=True, raw_provider_payloads=False),

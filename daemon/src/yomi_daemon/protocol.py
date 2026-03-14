@@ -55,11 +55,6 @@ class EventName(StrEnum):
     ERROR = "Error"
 
 
-class TimeoutProfile(StrEnum):
-    STRICT_LOCAL = "strict_local"
-    LLM_TOURNAMENT = "llm_tournament"
-
-
 class FallbackMode(StrEnum):
     SAFE_CONTINUE = "safe_continue"
     HEURISTIC_GUARD = "heuristic_guard"
@@ -334,24 +329,36 @@ class CharacterSelectionConfig(ProtocolModel):
 
 
 @dataclass(frozen=True, slots=True)
+class MatchOptions(ProtocolModel):
+    starting_hp: int | None = None
+
+    @classmethod
+    def from_dict(cls, raw: object, *, context: str = "match_options") -> "MatchOptions":
+        if raw is None:
+            return cls()
+        mapping = _require_mapping(raw, context=context)
+        return cls(
+            starting_hp=_optional_integer(
+                mapping.get("starting_hp"), context=f"{context}.starting_hp"
+            ),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ConfigPayload(ProtocolModel):
-    timeout_profile: TimeoutProfile
     decision_timeout_ms: int
     fallback_mode: FallbackMode
     logging: LoggingConfig
     policy_mapping: PlayerPolicyMapping
     character_selection: CharacterSelectionConfig
     stage_id: str | None = None
+    match_options: MatchOptions | None = None
 
     @classmethod
     def from_dict(cls, raw: object, *, context: str = "config") -> "ConfigPayload":
         mapping = _require_mapping(raw, context=context)
+        match_options_raw = mapping.get("match_options")
         return cls(
-            timeout_profile=TimeoutProfile(
-                _require_string(
-                    mapping.get("timeout_profile"), context=f"{context}.timeout_profile"
-                )
-            ),
             decision_timeout_ms=_require_integer(
                 mapping.get("decision_timeout_ms"),
                 context=f"{context}.decision_timeout_ms",
@@ -369,6 +376,11 @@ class ConfigPayload(ProtocolModel):
                 context=f"{context}.character_selection",
             ),
             stage_id=_optional_string(mapping.get("stage_id"), context=f"{context}.stage_id"),
+            match_options=(
+                MatchOptions.from_dict(match_options_raw, context=f"{context}.match_options")
+                if match_options_raw is not None
+                else None
+            ),
         )
 
 

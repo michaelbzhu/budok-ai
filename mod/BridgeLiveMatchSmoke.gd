@@ -46,7 +46,6 @@ func _run() -> void:
 		"transport": {"host": "127.0.0.1", "port": 8765, "connect_on_ready": false},
 		"protocol": {"schema_version": "v2", "supported_versions": ["v2"]},
 		"game_version": "1.9.20-steam",
-		"timeout_profile": "strict_local",
 		"decision_timeout_ms": 5000,
 		"fallback_mode": "safe_continue",
 		"logging": {"events": true, "bridge_state": false, "raw_messages": false},

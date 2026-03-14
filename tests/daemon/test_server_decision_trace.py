@@ -34,7 +34,6 @@ def _runtime_config() -> DaemonRuntimeConfig:
             "version": "v1",
             "trace_seed": 42,
             "fallback_mode": "safe_continue",
-            "timeout_profile": "strict_local",
             "logging": {
                 "events": True,
                 "prompts": True,

@@ -9,8 +9,7 @@
     "supported_versions": ["v2"]
   },
   "game_version": "supported-build-16151810",
-  "timeout_profile": "strict_local",
-  "decision_timeout_ms": 2500,
+  "decision_timeout_ms": 15000,
   "fallback_mode": "safe_continue",
   "logging": {
     "events": true,

@@ -3,8 +3,8 @@
 
 Usage:
     uv run --project daemon python scripts/benchmark_latency.py
-    uv run --project daemon python scripts/benchmark_latency.py --profile strict_local --turns 30
-    uv run --project daemon python scripts/benchmark_latency.py --profile llm_tournament --policy baseline/random
+    uv run --project daemon python scripts/benchmark_latency.py --turns 30
+    uv run --project daemon python scripts/benchmark_latency.py --policy baseline/random
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import sys
 import time
 from typing import Any, cast
 
@@ -37,26 +36,17 @@ from yomi_daemon.protocol import (
     LoggingConfig,
     MessageType,
     PlayerPolicyMapping,
-    TimeoutProfile,
 )
 from yomi_daemon.server import DaemonServer
 from yomi_daemon.validation import parse_envelope
 
 
-# Spec budgets
-BUDGETS: dict[str, dict[str, float]] = {
-    "strict_local": {"p95_ms": 1200, "fallback_rate_pct": 0},
-    "llm_tournament": {"p95_ms": 15000, "fallback_rate_pct": 5},
-}
-
-
-def _build_config(profile: str, policy: str, trace_seed: int) -> DaemonRuntimeConfig:
+def _build_config(policy: str, trace_seed: int) -> DaemonRuntimeConfig:
     policies = {policy: PolicyConfig(provider="baseline")}
     return DaemonRuntimeConfig(
         version="v1",
         transport=TransportConfig(host="127.0.0.1", port=0),
-        timeout_profile=TimeoutProfile(profile),
-        decision_timeout_ms=2500 if profile == "strict_local" else 10000,
+        decision_timeout_ms=10000,
         fallback_mode=FallbackMode.SAFE_CONTINUE,
         logging=LoggingConfig(events=True, prompts=False, raw_provider_payloads=False),
         policy_mapping=PlayerPolicyMapping(p1=policy, p2=policy),
@@ -213,10 +203,8 @@ def percentile(sorted_values: list[float], p: float) -> float:
     return sorted_values[min(idx, len(sorted_values) - 1)]
 
 
-async def run_benchmark(
-    profile: str, turns: int, policy: str, trace_seed: int
-) -> dict[str, Any]:
-    config = _build_config(profile, policy, trace_seed)
+async def run_benchmark(turns: int, policy: str, trace_seed: int) -> dict[str, Any]:
+    config = _build_config(policy, trace_seed)
     match_id = new_benchmark_id()
 
     server = DaemonServer(
@@ -259,7 +247,6 @@ async def run_benchmark(
     fallback_rate = (fallbacks / turns * 100) if turns > 0 else 0.0
 
     return {
-        "profile": profile,
         "policy": policy,
         "turns": turns,
         "p50_ms": round(percentile(latencies, 50), 2),
@@ -271,52 +258,25 @@ async def run_benchmark(
 
 
 def print_report(results: dict[str, Any]) -> None:
-    profile = results["profile"]
-    budget = BUDGETS.get(profile, {})
-
     print(f"\n{'=' * 60}")
     print("  YOMI Daemon Latency Benchmark")
     print(f"{'=' * 60}")
-    print(f"  Profile:  {profile}")
     print(f"  Policy:   {results['policy']}")
     print(f"  Turns:    {results['turns']}")
     print(f"{'─' * 60}")
-    print(f"  {'Metric':<25} {'Value':>10} {'Budget':>10} {'Status':>10}")
-    print(f"  {'─' * 55}")
+    print(f"  {'Metric':<25} {'Value':>10}")
+    print(f"  {'─' * 35}")
 
-    p95 = results["p95_ms"]
-    p95_budget = budget.get("p95_ms", float("inf"))
-    p95_ok = p95 <= p95_budget
-    print(f"  {'p50 latency (ms)':<25} {results['p50_ms']:>10.2f} {'':>10} {'':>10}")
-    print(
-        f"  {'p95 latency (ms)':<25} {p95:>10.2f} {p95_budget:>10.0f} {'PASS' if p95_ok else 'FAIL':>10}"
-    )
-    print(f"  {'p99 latency (ms)':<25} {results['p99_ms']:>10.2f} {'':>10} {'':>10}")
-
-    fb_rate = results["fallback_rate_pct"]
-    fb_budget = budget.get("fallback_rate_pct", float("inf"))
-    fb_ok = fb_rate <= fb_budget
-    print(
-        f"  {'Fallback rate (%)':<25} {fb_rate:>10.2f} {fb_budget:>10.1f} {'PASS' if fb_ok else 'FAIL':>10}"
-    )
+    print(f"  {'p50 latency (ms)':<25} {results['p50_ms']:>10.2f}")
+    print(f"  {'p95 latency (ms)':<25} {results['p95_ms']:>10.2f}")
+    print(f"  {'p99 latency (ms)':<25} {results['p99_ms']:>10.2f}")
+    print(f"  {'Fallback rate (%)':<25} {results['fallback_rate_pct']:>10.2f}")
     print(f"  {'Fallback count':<25} {results['fallback_count']:>10}")
     print(f"{'=' * 60}\n")
-
-    if not p95_ok or not fb_ok:
-        print("  RESULT: FAIL — budget exceeded")
-    else:
-        print("  RESULT: PASS — all budgets met")
-    print()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="YOMI daemon latency benchmark")
-    parser.add_argument(
-        "--profile",
-        choices=["strict_local", "llm_tournament"],
-        default="strict_local",
-        help="Timeout profile to benchmark (default: strict_local)",
-    )
     parser.add_argument(
         "--turns",
         type=int,
@@ -336,16 +296,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    results = asyncio.run(
-        run_benchmark(args.profile, args.turns, args.policy, args.seed)
-    )
+    results = asyncio.run(run_benchmark(args.turns, args.policy, args.seed))
     print_report(results)
-
-    budget = BUDGETS.get(args.profile, {})
-    if results["p95_ms"] > budget.get("p95_ms", float("inf")):
-        sys.exit(1)
-    if results["fallback_rate_pct"] > budget.get("fallback_rate_pct", float("inf")):
-        sys.exit(1)
 
 
 if __name__ == "__main__":

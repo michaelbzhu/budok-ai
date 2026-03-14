@@ -26,7 +26,6 @@ from yomi_daemon.protocol import (
     FallbackMode,
     LoggingConfig,
     PlayerPolicyMapping,
-    TimeoutProfile,
 )
 from yomi_daemon.server import DaemonServer
 from yomi_daemon.validation import REPO_ROOT
@@ -60,7 +59,6 @@ def test_live_match_smoke_in_engine() -> None:
     config = DaemonRuntimeConfig(
         version="v1",
         transport=TransportConfig(host="127.0.0.1", port=8765),
-        timeout_profile=TimeoutProfile.STRICT_LOCAL,
         decision_timeout_ms=5000,
         fallback_mode=FallbackMode.SAFE_CONTINUE,
         logging=LoggingConfig(events=True, prompts=True, raw_provider_payloads=False),

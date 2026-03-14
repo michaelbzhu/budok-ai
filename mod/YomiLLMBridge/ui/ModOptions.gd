@@ -39,11 +39,6 @@ func set_transport_port(port: int) -> void:
 	emit_signal("config_changed", _config.duplicate(true))
 
 
-func set_timeout_profile(timeout_profile: String) -> void:
-	_config["timeout_profile"] = timeout_profile
-	emit_signal("config_changed", _config.duplicate(true))
-
-
 func set_logging_toggle(toggle_name: String, enabled: bool) -> void:
 	_ensure_logging()
 	_config["logging"][toggle_name] = enabled
@@ -56,7 +51,6 @@ func get_summary() -> Dictionary:
 	return {
 		"host": str(_config["transport"].get("host", "127.0.0.1")),
 		"port": int(_config["transport"].get("port", 8765)),
-		"timeout_profile": str(_config.get("timeout_profile", "strict_local")),
 		"logging": _config["logging"].duplicate(true),
 		"state": str(_bridge_snapshot.get("state", "disconnected")),
 	}

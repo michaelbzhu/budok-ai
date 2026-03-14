@@ -85,8 +85,7 @@ Config files: `config/ModOptions.gd`, `config/default_config.json`.
 
 - `version` — config schema version (`"v1"`)
 - `transport` — host, port, optional `auth_secret` (resolved from env var)
-- `timeout_profile` — `strict_local` or `llm_tournament`
-- `decision_timeout_ms` — derived from profile, capped at profile maximum
+- `decision_timeout_ms` — decision timeout in milliseconds (default 10000)
 - `fallback_mode` — `safe_continue`, `heuristic_guard`, or `last_valid_replayable`
 - `logging` — events, prompts, raw_provider_payloads flags
 - `policy_mapping` — p1/p2 policy ID assignment

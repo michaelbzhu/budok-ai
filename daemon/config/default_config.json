@@ -4,7 +4,7 @@
     "host": "127.0.0.1",
     "port": 8765
   },
-  "timeout_profile": "strict_local",
+  "decision_timeout_ms": 10000,
   "fallback_mode": "safe_continue",
   "logging": {
     "events": true,

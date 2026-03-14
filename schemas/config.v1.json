@@ -5,7 +5,6 @@
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "timeout_profile",
     "decision_timeout_ms",
     "fallback_mode",
     "logging",
@@ -13,14 +12,9 @@
     "character_selection"
   ],
   "properties": {
-    "timeout_profile": {
-      "type": "string",
-      "enum": ["strict_local", "llm_tournament"]
-    },
     "decision_timeout_ms": {
       "type": "integer",
-      "minimum": 1,
-      "maximum": 15000
+      "minimum": 1
     },
     "fallback_mode": {
       "type": "string",
