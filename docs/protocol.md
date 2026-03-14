@@ -189,6 +189,9 @@ The fallback-reason enum is:
 - `DecisionApplied`
 - `DecisionFallback`
 - `MatchEnded`
+- `ReplaySaved`
+- `ReplayStarted`
+- `ReplayEnded`
 - `Error`
 
 `MatchEnded` carries the final match summary fields called out in the spec:

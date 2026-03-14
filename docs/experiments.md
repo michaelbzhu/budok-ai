@@ -90,6 +90,8 @@ runs/<timestamp>_<match_id>/
   result.json         Winner, end reason, turn count, status
   replay_index.json   Per-turn pointers into decisions/prompts
   stderr.log          Error output
+  replay.mp4          Replay video (when --record-replay enabled)
+  match.replay        Game replay file (when --record-replay enabled)
 ```
 
 ### Quick result check

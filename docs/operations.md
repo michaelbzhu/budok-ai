@@ -132,6 +132,8 @@ runs/<timestamp>_<match_id>/
   result.json
   replay_index.json
   stderr.log
+  replay.mp4          (when --record-replay enabled)
+  match.replay        (when --record-replay enabled)
 ```
 
 The initial manifest skeleton is intended to exist before the first turn so failed or incomplete

@@ -13,7 +13,7 @@ YOMI Hustle is only available for Windows and Linux on Steam. On macOS, we run t
 - [x] Step 6: Configure networking (bridge IP: `192.168.139.3`, mod config updated)
 - [x] Step 7: Start the daemon
 - [x] Step 8: Launch the game headlessly (596-decision match completed to KO, baseline/random)
-- [ ] Step 9: Test replay video recording (--record-replay flag, ffmpeg x11grab)
+- [x] Step 9: Test replay video recording (713-turn match, 68s replay video, 3.2 MB H.264 1280x720@30fps)
 
 ## Architecture
 
@@ -431,6 +431,23 @@ Replay files are saved to `user://replay/autosave/` inside the VM, which resolve
 **Video is black**: The game must be rendering to the virtual display. Verify with `DISPLAY=:99 scrot /tmp/test.png` from the VM.
 
 **Recording never starts**: The replay only begins ~120 ticks after the match ends. The mod waits up to 60 seconds for replay detection. Check daemon logs for `ReplayStarted` events.
+
+**ffmpeg doesn't exit cleanly on SIGINT**: When ffmpeg runs inside the VM via `orb run`, SIGINT goes to the `orb` wrapper process, not directly to ffmpeg. The daemon handles this with a 15-second timeout after SIGINT, then kills the process. A fallback `pgrep`/`kill` inside the VM catches any orphaned ffmpeg processes. The video file is still valid because ffmpeg flushes data continuously.
+
+**replay_path is null in result.json**: The `ReplaySaved` event arrives after `match_ended` finalization, so `replay_path` in `result.json` is currently `null`. The replay video is still saved correctly to the run directory. This is a cosmetic gap.
+
+## First replay video recording
+
+The first replay video was captured successfully: **713 turns, P1 won by KO, 68-second replay video** (3.2 MB, H.264, 1280x720 @ 30fps). The full pipeline validated:
+
+1. Match completed normally (baseline/random mirror, Ninja)
+2. Mod saved replay file via `ReplayManager.save_replay()`
+3. Game auto-started replay playback ~3 seconds after match end
+4. Mod detected `ReplayManager.playback == true` on new game instance
+5. Mod sent `ReplayStarted` with display `:99` → daemon started ffmpeg
+6. Replay played for ~53 seconds
+7. Mod sent `ReplayEnded` → daemon stopped ffmpeg and pulled video
+8. `replay.mp4` written to run directory (valid, playable)
 
 ## OrbStack CLI reference
 
