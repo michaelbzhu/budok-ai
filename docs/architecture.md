@@ -94,6 +94,7 @@ Config files: `config/ModOptions.gd`, `config/default_config.json`.
 - `tournament` — format, mirror_matches_first, side_swap, games_per_pair, fixed_stage
 - `trace_seed` — reproducibility seed
 - `stage_id` — optional stage override
+- `match_options` — optional match configuration (e.g. `starting_hp`)
 
 `DaemonRuntimeConfig.to_config_payload()` emits the narrower `ConfigPayload` used for handshake pinning and manifests. The `effective_stage_id` property resolves from `stage_id` or `tournament.fixed_stage`.
 
@@ -103,7 +104,7 @@ The split is deliberate: runtime config includes daemon concerns (transport, cre
 
 Daemon startup resolves config in this order:
 
-1. Built-in defaults in `yomi_daemon.config` for transport, logging, timeout profiles, character selection, tournament defaults, and `trace_seed`.
+1. Built-in defaults in `yomi_daemon.config` for transport, logging, decision timeout, character selection, tournament defaults, and `trace_seed`.
 2. A selected JSON config file, defaulting to `daemon/config/default_config.json`.
 3. CLI overrides from `yomi-daemon --host/--port/--p1-policy/--p2-policy/--trace-seed/--log-level`.
 4. Environment lookup for provider credentials referenced by `credential_env_var`.

@@ -164,25 +164,14 @@ Provider decisions are inherently non-deterministic due to model sampling. The `
 
 ## Benchmarking
 
-### Latency benchmarks
-
-Test conformance against timeout profile budgets:
-
-```bash
-uv run --project daemon python scripts/benchmark_latency.py --profile strict_local --turns 20
-uv run --project daemon python scripts/benchmark_latency.py --profile llm_tournament --turns 30
-```
-
-The benchmark prints p50/p95/p99 latency and fallback rate against spec budgets:
-
-| Profile | Default timeout | p95 budget | Fallback rate budget |
-|---|---|---|---|
-| `strict_local` | 2500 ms | 1200 ms | 0% |
-| `llm_tournament` | 10000 ms | 15000 ms | < 5% |
-
 ### Per-match metrics
 
-Each run's `metrics.json` contains latency statistics and fallback counts. Compare across runs to detect regressions.
+Each run's `metrics.json` contains latency statistics, fallback counts, and token usage. Compare across runs to detect regressions.
+
+Key metrics to watch:
+- `average_latency_ms` — mean decision latency (baseline: <1ms, LLM: ~5-7s)
+- `fallback_count` — should be 0 for baseline, <5% for LLM
+- `tokens_in_total` / `tokens_out_total` — total token usage for cost tracking
 
 ## Prompt variants
 

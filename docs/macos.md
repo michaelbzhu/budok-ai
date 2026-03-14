@@ -14,6 +14,7 @@ YOMI Hustle is only available for Windows and Linux on Steam. On macOS, we run t
 - [x] Step 7: Start the daemon
 - [x] Step 8: Launch the game headlessly (596-decision match completed to KO, baseline/random)
 - [x] Step 9: Test replay video recording (713-turn match, 68s replay video, 3.2 MB H.264 1280x720@30fps)
+- [x] Step 10: First LLM match (Claude Sonnet 4 vs greedy_damage, 204 decisions, 0 fallbacks, 5.6s avg latency)
 
 ## Architecture
 
@@ -448,6 +449,54 @@ The first replay video was captured successfully: **713 turns, P1 won by KO, 68-
 6. Replay played for ~53 seconds
 7. Mod sent `ReplayEnded` → daemon stopped ffmpeg and pulled video
 8. `replay.mp4` written to run directory (valid, playable)
+
+## First LLM match
+
+The first LLM-backed match ran successfully: **Claude Sonnet 4 (P1) vs baseline/greedy_damage (P2)**, 300 HP starting health, strategic_v1 prompt.
+
+**Results:**
+
+| Metric | Value |
+|---|---|
+| Total decisions | 204 (99 LLM, 105 baseline) |
+| Fallbacks | 0 |
+| Avg LLM latency | 5,565ms |
+| Tokens consumed | 603K in / 19K out |
+| Starting HP | 300 each |
+| Final HP | P1: 30, P2: 300 |
+| Match ended | Manually killed (defensive stalemate) |
+
+**Config used:** `daemon/config/llm_first_test.json`
+
+**Key observations:**
+- Zero fallbacks — response parsing worked perfectly on every turn
+- Claude produced coherent strategic reasoning (references HP, positioning, opponent state)
+- Claude played defensively at low HP (rolls, dodges, parries), surviving 150+ turns at 30 HP
+- The greedy_damage baseline's grab spam couldn't finish Claude off — defensive stalemate
+- `match_options.starting_hp = 300` shortened the match from 1500 HP default
+
+**Critical bug fixed:** `config.py` defaulted `resolved_env` to `{}` instead of `os.environ`, so API keys from environment variables were never resolved via the CLI path. Fixed in commit `83432e0`.
+
+**Running an LLM match:**
+
+```bash
+# Start daemon with LLM config (source API key first)
+cd daemon
+source ../.env && export ANTHROPIC_API_KEY
+uv run python -m yomi_daemon.cli --config config/llm_first_test.json
+
+# In another terminal, package and push mod with VM host IP baked in
+cd mod && zip -r /tmp/YomiLLMBridge.zip YomiLLMBridge/
+# Update host to 192.168.139.3 in the zip (see Step 6)
+orb push -m ubuntu /tmp/YomiLLMBridge.zip /home/$USER/games/yomi/mods/YomiLLMBridge.zip
+
+# Launch game in VM
+orb run -m ubuntu bash -c '
+export LIBGL_ALWAYS_SOFTWARE=1
+export LD_LIBRARY_PATH=$HOME/games/yomi:$LD_LIBRARY_PATH
+DISPLAY=:99 $HOME/games/yomi/YourOnlyMoveIsHUSTLE.x86_64
+'
+```
 
 ## OrbStack CLI reference
 

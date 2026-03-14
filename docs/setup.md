@@ -132,7 +132,7 @@ Open the decompiled project in Godot `3.5.1` only. Newer Godot versions may sile
 
 ## 7. Daemon configuration
 
-The default config lives at `daemon/config/default_config.json`. It runs two `baseline/random` policies with `strict_local` timeout profile.
+The default config lives at `daemon/config/default_config.json`. It runs two `baseline/random` policies with a 10-second decision timeout.
 
 To customize, copy and edit:
 
@@ -169,7 +169,7 @@ Add a policy entry to the `policies` object and reference it in `policy_mapping`
 }
 ```
 
-Use `llm_tournament` timeout profile for provider-backed policies (10s default vs 2.5s for `strict_local`).
+For LLM-backed policies, set `decision_timeout_ms` to 15000 to accommodate API latency. See `daemon/config/llm_first_test.json` for a complete example.
 
 ## 8. Quality gates
 

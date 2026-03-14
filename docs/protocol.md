@@ -215,10 +215,10 @@ The fallback-reason enum is:
 - `policy_mapping`
 - `character_selection`
 - optional `stage_id`
+- optional `match_options` (e.g. `starting_hp`)
 
 The `v2` enums here align with the unified spec:
 
-- timeout profiles: `strict_local`, `llm_tournament`
 - fallback modes: `safe_continue`, `heuristic_guard`, `last_valid_replayable`
 - character modes: `mirror`, `assigned`, `random_from_pool`
 

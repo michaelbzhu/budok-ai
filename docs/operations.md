@@ -151,25 +151,11 @@ matches still retain pinned config, version, and seed metadata.
 
 **All-fallback scenarios**: If every turn produces a fallback decision, check that the configured policy is reachable. For baseline policies, this should never happen. For provider-backed policies, verify credentials and network connectivity.
 
-## Performance profiles
+## Performance
 
-Two timeout profiles are defined:
+`decision_timeout_ms` controls the per-turn decision deadline. Default is 10000ms. For LLM-backed policies, 15000ms is recommended to accommodate API latency.
 
-| Profile | `decision_timeout_ms` default | p95 budget | Fallback rate budget |
-|---|---|---|---|
-| `strict_local` | 2500 ms | 1200 ms | 0% |
-| `llm_tournament` | 10000 ms | 15000 ms | < 5% |
-
-Run the latency benchmark:
-
-```bash
-uv run --project daemon python scripts/benchmark_latency.py --profile strict_local --turns 20
-uv run --project daemon python scripts/benchmark_latency.py --profile llm_tournament --turns 30
-```
-
-The benchmark prints a conformance table showing p50/p95/p99 latency and fallback rate against the spec budgets.
-
-`metrics.json` in each run directory tracks per-match latency statistics and fallback counts. Use it to identify regressions after code changes.
+`metrics.json` in each run directory tracks per-match latency statistics, fallback counts, and token usage. Use it to identify regressions after code changes.
 
 ## Live local workflow
 
