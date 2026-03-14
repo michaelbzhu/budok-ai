@@ -223,7 +223,7 @@ export LIBGL_ALWAYS_SOFTWARE=1
 export LD_LIBRARY_PATH=$HOME/games/yomi:$LD_LIBRARY_PATH
 
 # Start Xvfb on a fixed display
-Xvfb :99 -screen 0 1280x720x24 &
+Xvfb :99 -screen 0 1280x720x24 -nocursor &
 sleep 1
 
 # Launch the game
@@ -401,7 +401,7 @@ orb shell -m ubuntu
 export LIBGL_ALWAYS_SOFTWARE=1
 export LD_LIBRARY_PATH=$HOME/games/yomi:$LD_LIBRARY_PATH
 
-Xvfb :99 -screen 0 1280x720x24 &
+Xvfb :99 -screen 0 1280x720x24 -nocursor &
 sleep 1
 
 DISPLAY=:99 ~/games/yomi/YourOnlyMoveIsHUSTLE.x86_64
