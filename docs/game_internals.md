@@ -254,6 +254,22 @@ Current working assumptions:
 - `reverse` should remain explicit even if most moves default it to `false`.
 - any daemon decision must be tied to the current `match_id` and `turn_id`; stale responses must be rejected before touching `queued_*`.
 
+## Character Name Resolution
+
+`game.gd` renames fighter nodes to `"P1"` and `"P2"` after instantiation (line 376-377), so `fighter.name` returns the player slot name at runtime, not the character name. The character `.tscn` scenes define root node names matching the character (`"Ninja"`, `"Cowboy"`, `"Wizard"`, `"Robot"`, `"Mutant"`), but these are overwritten.
+
+`ObservationBuilder.gd` resolves the true character name by reverse-looking up `fighter.filename` (the `.tscn` scene path) against `SCENE_PATH_TO_CHARACTER`, which mirrors `Global.name_paths`:
+
+| Scene path | Character |
+|---|---|
+| `res://characters/stickman/NinjaGuy.tscn` | `Ninja` |
+| `res://characters/swordandgun/SwordGuy.tscn` | `Cowboy` |
+| `res://characters/wizard/Wizard.tscn` | `Wizard` |
+| `res://characters/robo/Robot.tscn` | `Robot` |
+| `res://characters/mutant/Mutant.tscn` | `Mutant` |
+
+`get_class()` is a partial fallback — it works for `Cowboy`, `Robot`, and `Mutant` (which declare `class_name` in their scripts) but not for `Ninja` or `Wizard`.
+
 ## Known Version Risks
 
 - `res://game.gd` may move or be renamed in future builds even if the gameplay seam is unchanged.

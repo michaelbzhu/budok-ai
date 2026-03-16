@@ -100,7 +100,7 @@ Recommended metadata fields are optional but versioned in-schema already:
 
 Each fighter entry is typed with the common strategic fields from the spec. Required fields include position, velocity, health, meter, burst, facing, current state name, and actionability flags. Optional fields include `air_actions_remaining`, `feints_remaining`, `initiative`, `sadness`, `wakeup_throw_immune`, `combo_proration`, and `character_data`.
 
-`history` is a list of recent `HistoryEntry` records (capped at `MAX_HISTORY_ENTRIES = 10`), each containing `turn_id`, `player_id`, `action`, and `was_fallback`.
+`history` is a list of recent `HistoryEntry` records (capped at `MAX_HISTORY_ENTRIES = 10`). Each entry requires `turn_id`. Legacy single-player fields (`player_id`, `action`, `was_fallback`) are still accepted. Enriched entries include both players' actions and state per turn: `p1_action`, `p2_action`, `p1_was_fallback`, `p2_was_fallback`, `p1_hp`, `p2_hp`, `p1_pos`, and `p2_pos`.
 
 `objects` entries are classified by `classify_object_type()` into categories: `projectile` (Bullet, Arrow, StickyBomb, Shuriken, LoicBeam, Zap, Fireball, WindSlash), `install` (Geyser, Storm, Trap, Mine), and `effect` (Shield, Aura).
 

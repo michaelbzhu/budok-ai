@@ -312,6 +312,14 @@ This validates the full pipeline: game boots → mod connects → daemon orchest
 
 Fixed by adding XYPlot/CountOption detection in LegalActionBuilder, uppercase DI normalization in ActionApplier, and integer prediction normalization.
 
+## Known issues (resolved, batch 2)
+
+**Fighter name returns "P1"/"P2" (FIXED)**: `game.gd` renames fighter nodes to `"P1"`/`"P2"` after instantiation, so `fighter.name` never returns the character name. This broke the move catalog lookup and `_build_character_data` dispatch. Fixed by resolving character name from `fighter.filename` (the `.tscn` scene path) via `SCENE_PATH_TO_CHARACTER` reverse-lookup.
+
+**LLM prediction validation failures (FIXED)**: LLMs consistently included `extra.prediction` for actions with `supports.prediction=false`, causing `illegal_output` validation failures and high fallback rates (~70%). Fixed by silently stripping unsupported prediction during response normalization in `response_parser.py`.
+
+**DashForward spam (FIXED)**: Without character-specific move descriptions, LLMs defaulted to DashForward ~50% of turns. Fixed by the character name resolution (enables move catalog), a pre-computed situation summary with distance/range labels, concrete spacing thresholds in the strategic prompt, and explicit anti-repetition rules.
+
 ## Known issues (open)
 
 **Observation float types**: Values from `get_pos()` and `get_vel()` may serialize as strings or floats depending on the game's FixedMath types. The `ObservationBuilder` must cast with `int()` to satisfy the daemon's JSON schema validation (which expects `"type": "number"`).
@@ -530,6 +538,11 @@ The first LLM-vs-LLM match ran successfully: **Claude Sonnet 4 (P1) vs Claude So
 - `match_options.starting_hp = 100` kept the match short for testing
 - Correction retry enabled for both players
 - Godot 3.5.1 integer validation fix was critical — all JSON numbers parse as floats
+
+**Known issues from early LLM matches (now fixed):**
+- Both agents spammed `DashForward` because `fighter.name` returned `"P1"`/`"P2"` instead of the character name, so the move catalog could not inject character-specific move descriptions. Fixed by resolving character name from `fighter.filename` scene path.
+- LLMs included `extra.prediction` for actions that don't support it, causing validation failures and high fallback rates. Fixed by silently stripping unsupported prediction during response normalization.
+- After fixes: agents use character-specific moves (LightningSlice, Lasso, BoltOfMagma, etc.), mix attacks/grabs/defense with yomi reasoning, and maintain <15% fallback rate.
 
 **Running an LLM match:**
 

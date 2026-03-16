@@ -77,9 +77,10 @@ If any check fails, the bridge does not activate.
 
 2. **`ObservationBuilder.gd`** serializes deterministic game state from live objects:
    - Both fighters: position, velocity, health, meter, burst, facing, current state, actionability flags, and optional character-specific data
+   - Character name resolved via `fighter.filename` reverse-lookup against known scene paths (`SCENE_PATH_TO_CHARACTER`), since `game.gd` overwrites fighter node names to `"P1"`/`"P2"` at runtime
    - Active projectiles, installs, and effects (classified by `OBJECT_CATEGORY_MAP`)
    - Stage bounds
-   - Turn history (last 10 entries)
+   - Turn history (last 10 entries, enriched with both players' actions, HP, and positions per turn)
    - Tick and frame counters
 
 3. **`LegalActionBuilder.gd`** enumerates actions from the UI-backed action button containers (`P1ActionButtons` / `P2ActionButtons`):
@@ -136,13 +137,14 @@ On the first `decision_request`, the server lazily initializes:
 For provider adapters (Anthropic, OpenAI, OpenRouter):
 
 1. `adapter.decide_with_trace(request)` is called.
-2. Inside the adapter, `prompt.py:render_prompt()` assembles the full prompt from the template body, output contract, turn context, observation, and legal actions.
+2. Inside the adapter, `prompt.py:render_prompt()` assembles the full prompt from the template body, output contract, turn context, situation summary, observation, and legal actions. The situation summary pre-computes distance, range label, HP comparison, and repetition warnings. Legal actions are enriched with move catalog metadata (category, speed, damage, range) from `prompts/move_catalog.json`.
 3. The adapter calls the provider API with the rendered prompt.
 4. The raw response is parsed by `response_parser.py:parse_action_decision_with_correction()`:
    - Tries structured parsing (mapping/ProtocolModel)
    - Falls back to JSON extraction from text
    - Falls back to key-value text parsing
    - Normalizes defaults (`match_id`, `turn_id`, `data`, `extra`)
+   - Strips `extra.prediction` when the chosen action does not support it
    - Validates against the original request (action legality, payload conformance, extra bounds)
 5. If parsing fails and correction retry is enabled, a bounded correction prompt is sent for one retry attempt.
 
