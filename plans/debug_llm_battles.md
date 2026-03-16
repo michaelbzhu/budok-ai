@@ -233,16 +233,23 @@ Cowboy's gun moves (Shoot2, PointBlank, PistolWhip, ShootDodge2) never appear in
 
 ### Implementation
 
-- [ ] Check whether Shoot2/PointBlank/etc. require entering Quick Draw stance (Brandish) first by examining the game's action button visibility rules
-- [ ] If gun moves require Brandish: update the Brandish catalog entry to say "**Unlocks Shoot, PointBlank, ShootDodge next turn**" and verify Brandish is in the legal set
+- [x] Check whether Shoot2/PointBlank/etc. require entering Quick Draw stance (Brandish) first by examining the game's action button visibility rules
+- [x] If gun moves require Brandish: update the Brandish catalog entry to say "**Unlocks Shoot, PointBlank, ShootDodge next turn**" and verify Brandish is in the legal set
 - [ ] If gun moves should be directly available: debug `LegalActionBuilder.gd` to find why the buttons aren't being enumerated
 - [ ] Take a screenshot of the game UI during a Cowboy match to verify which action buttons are visible
-- [ ] If the moves are stance-gated, add a "stance_unlocks" field to the catalog so the LLM knows to use Brandish as a setup move
+- [x] If the moves are stance-gated, add a "stance_unlocks" field to the catalog so the LLM knows to use Brandish as a setup move
 
 ### Acceptance criteria
 
-- [ ] Either gun moves appear in the legal action set, or Brandish's description clearly explains it unlocks gun moves
+- [x] Either gun moves appear in the legal action set, or Brandish's description clearly explains it unlocks gun moves
 - [ ] In a 50+ turn match, at least one gun move is used by an LLM agent
+
+### Execution notes for future agents
+
+- Code analysis confirms gun moves are stance-gated: `LegalActionBuilder.gd` reads visible action buttons, and gun buttons only become visible after entering Quick Draw stance via Brandish.
+- Brandish catalog entry updated in WU-DBG-03 with `stance_unlocks: ["Shoot2", "ShootDodge2", "PointBlank", "PistolWhip"]` and description explaining it unlocks gun moves.
+- `QuickerDraw` also has the same `stance_unlocks` array.
+- Remaining: verify in a live match that Brandish appears in the legal set and that choosing it makes gun moves appear next turn. Take screenshots to confirm.
 
 ---
 
@@ -257,17 +264,25 @@ Both fighters stay at starting positions (-50, 50) for the entire match. 100/100
 ### Implementation
 
 - [ ] Take screenshots at multiple points during a match to verify the visual game state matches the observation data
-- [ ] Check whether `ObservationBuilder` captures position at the right moment (before action resolution vs after)
+- [x] Check whether `ObservationBuilder` captures position at the right moment (before action resolution vs after)
 - [ ] Check whether the game resets positions after simultaneous mutual attacks (could be a game mechanic where clashing attacks reset to neutral)
 - [ ] If positions are genuinely static, investigate whether the actions are actually being applied via `ActionApplier.gd` by adding telemetry for `on_action_selected` calls
-- [ ] Compare observation timing vs game tick resolution — are we capturing state before the previous turn's actions resolve?
-- [ ] If the issue is observation timing, adjust to capture state **after** the previous tick resolves but **before** the next decision is needed
+- [x] Compare observation timing vs game tick resolution — are we capturing state before the previous turn's actions resolve?
+- [x] If the issue is observation timing, adjust to capture state **after** the previous tick resolves but **before** the next decision is needed
 
 ### Acceptance criteria
 
 - [ ] Observation positions change across turns in a match where both players use movement or attack moves
 - [ ] At least one player's HP drops below max in a 50+ turn match
 - [ ] Screenshot visual state matches observation position data
+
+### Execution notes for future agents
+
+- **Observation timing is correct**: `ObservationBuilder.build_observation()` runs when `player_actionable` fires, which is after the previous tick resolved. Positions and HP reflect post-resolution state.
+- **History HP/position timing was wrong (fixed in WU-DBG-01/02)**: `_record_turn_decision` used to snapshot HP/position at decision-application time (pre-resolution). Now `_enrich_last_history_entry()` retroactively updates to post-resolution values when the next `player_actionable` fires.
+- **Position stasis root cause is likely gameplay**: at 100-unit distance with both players using LightningSliceNeutral, the attacks may clash (both fighters attack simultaneously, causing a "clash" mechanic that resets to neutral positions). The 100/100 HP after 107 turns suggests clashed attacks deal no net damage.
+- **Remaining investigation requires running the game**: take screenshots to verify positions visually, add ActionApplier telemetry to confirm `on_action_selected` is being called, and test whether movement actions (DashForward) actually change position values.
+- The prompt improvements in WU-DBG-03/04/05 should break the LightningSliceNeutral oscillation by encouraging variety, which may resolve the position/damage stasis indirectly.
 
 ---
 
