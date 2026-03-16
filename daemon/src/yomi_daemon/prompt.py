@@ -6,16 +6,20 @@ import json
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from typing import cast
 
 from yomi_daemon.protocol import DecisionRequest, JsonObject, default_prediction_spec
 from yomi_daemon.validation import REPO_ROOT
 
 
 PROMPTS_DIR = REPO_ROOT / "prompts"
+MOVE_CATALOG_PATH = PROMPTS_DIR / "move_catalog.json"
 DEFAULT_PROMPT_VERSION = "minimal_v1"
 PROMPT_VERSION_ALIASES = {
     "reasoning_enabled_v1": "reasoning_v1",
 }
+
+_move_catalog_cache: JsonObject | None = None
 
 
 class PromptTemplateError(ValueError):
@@ -176,21 +180,81 @@ def _turn_context(request: DecisionRequest, *, policy_id: str | None) -> JsonObj
 
 
 def _legal_actions_payload(request: DecisionRequest) -> list[JsonObject]:
-    return [
-        {
+    # Resolve character name from the active player's fighter observation
+    character_name = _resolve_active_character(request)
+    catalog = _load_move_catalog()
+    universal_moves = cast(JsonObject, catalog.get("_universal", {}))
+    character_moves = cast(JsonObject, catalog.get(character_name, {})) if character_name else {}
+
+    result: list[JsonObject] = []
+    for action in request.legal_actions:
+        # Look up catalog entry: character-specific first, then universal
+        catalog_entry = cast(
+            JsonObject,
+            character_moves.get(action.action, universal_moves.get(action.action, {})),
+        )
+
+        entry: JsonObject = {
             "action": action.action,
             "label": action.label,
-            "description": action.description,
-            "damage": action.damage,
-            "startup_frames": action.startup_frames,
-            "range": action.range,
-            "meter_cost": action.meter_cost,
-            "payload_spec": action.payload_spec,
-            "prediction_spec": action.prediction_spec,
-            "supports": action.supports.to_dict(),
         }
-        for action in request.legal_actions
-    ]
+
+        # Inject catalog description and tactical metadata
+        desc = action.description
+        if not desc and isinstance(catalog_entry, dict):
+            desc = catalog_entry.get("description")
+        if desc:
+            entry["description"] = desc
+
+        cat = catalog_entry.get("category") if isinstance(catalog_entry, dict) else None
+        if cat:
+            entry["category"] = cat
+        spd = catalog_entry.get("speed") if isinstance(catalog_entry, dict) else None
+        if spd:
+            entry["speed"] = spd
+        dmg = catalog_entry.get("damage") if isinstance(catalog_entry, dict) else None
+        if dmg:
+            entry["damage"] = dmg
+        rng = catalog_entry.get("range") if isinstance(catalog_entry, dict) else None
+        if rng:
+            entry["range"] = rng
+
+        if action.payload_spec:
+            entry["payload_spec"] = action.payload_spec
+        if action.prediction_spec:
+            entry["prediction_spec"] = action.prediction_spec
+        entry["supports"] = action.supports.to_dict()
+        result.append(entry)
+    return result
+
+
+def _resolve_active_character(request: DecisionRequest) -> str | None:
+    """Resolve the character name for the active player from the observation."""
+    for fighter in request.observation.fighters:
+        if fighter.id == request.player_id:
+            # Character name from observation (e.g. "P1", "Ninja", "Mutant")
+            name = fighter.character
+            # The game uses generic names like "P1"/"P2" when character_selection
+            # is mirror mode; try to match against known catalog characters
+            if name and name not in ("P1", "P2"):
+                return name
+    return None
+
+
+def _load_move_catalog() -> JsonObject:
+    """Load and cache the move catalog from prompts/move_catalog.json."""
+    global _move_catalog_cache  # noqa: PLW0603
+    if _move_catalog_cache is not None:
+        return _move_catalog_cache
+    if not MOVE_CATALOG_PATH.is_file():
+        _move_catalog_cache = {}
+        return _move_catalog_cache
+    raw = json.loads(MOVE_CATALOG_PATH.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        _move_catalog_cache = {}
+        return _move_catalog_cache
+    _move_catalog_cache = cast(JsonObject, raw)
+    return _move_catalog_cache
 
 
 def _json_dump(payload: object) -> str:

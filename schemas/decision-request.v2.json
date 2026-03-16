@@ -332,7 +332,7 @@
     "history_entry": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["turn_id", "player_id", "action"],
+      "required": ["turn_id"],
       "properties": {
         "turn_id": {
           "type": "integer",
@@ -348,6 +348,32 @@
         },
         "was_fallback": {
           "type": "boolean"
+        },
+        "p1_action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "p2_action": {
+          "type": "string",
+          "minLength": 1
+        },
+        "p1_was_fallback": {
+          "type": "boolean"
+        },
+        "p2_was_fallback": {
+          "type": "boolean"
+        },
+        "p1_hp": {
+          "type": "integer"
+        },
+        "p2_hp": {
+          "type": "integer"
+        },
+        "p1_pos": {
+          "$ref": "#/$defs/vector2"
+        },
+        "p2_pos": {
+          "$ref": "#/$defs/vector2"
         }
       }
     },

@@ -45,6 +45,11 @@ var _replay_game = null
 var _pending_requests = {}
 # Timestamps (OS.get_ticks_msec) for pending requests, same keys
 var _pending_timestamps = {}
+# Per-match turn history for context in observations
+var _turn_history = []
+# Staging area: tracks decisions per turn_id so we can build history entries
+# once both players have acted. Keyed by turn_id -> { "p1_action": ..., ... }
+var _turn_decisions = {}
 
 
 func attach(bridge_client, config: Dictionary) -> void:
@@ -113,7 +118,7 @@ func _on_player_actionable() -> void:
 			continue
 
 		_turn_id += 1
-		var observation = _observation_builder.build_observation(_game, fighter)
+		var observation = _observation_builder.build_observation(_game, fighter, _turn_history)
 		var legal_actions = _legal_action_builder.build_legal_actions(_game, fighter, action_buttons)
 
 		var state_hash = _protocol_codec.sha256_hex(observation)
@@ -201,6 +206,9 @@ func _apply_valid_decision(
 	# Record as last valid decision for potential replay
 	_fallback_handler.record_valid_decision(player_id, payload)
 
+	# Record decision into turn history
+	_record_turn_decision(int(request.get("turn_id", 0)), player_id, action_name, false)
+
 	_telemetry.emit_decision_received(
 		int(request.get("turn_id", 0)), player_id, action_name, latency_ms, policy_id
 	)
@@ -233,6 +241,9 @@ func _apply_fallback(
 	if strategy.begins_with("fallback/"):
 		strategy = strategy.substr(9)
 
+	# Record fallback into turn history
+	_record_turn_decision(int(request.get("turn_id", 0)), player_id, fallback_action, true)
+
 	_telemetry.emit_decision_fallback(
 		int(request.get("turn_id", 0)),
 		player_id,
@@ -245,6 +256,55 @@ func _apply_fallback(
 	# Clear pending request
 	var pending_key = _pending_key(player_id, int(request.get("turn_id", 0)))
 	_clear_pending(pending_key)
+
+
+func _record_turn_decision(turn_id: int, player_id: String, action_name: String, was_fallback: bool) -> void:
+	"""Record a player's decision for a turn. Once both players have acted in a
+	turn pair, snapshot HP and positions into a history entry."""
+	var tid_key = str(turn_id)
+	if not _turn_decisions.has(tid_key):
+		_turn_decisions[tid_key] = {}
+	var entry = _turn_decisions[tid_key]
+	var prefix = player_id  # "p1" or "p2"
+	entry[prefix + "_action"] = action_name
+	entry[prefix + "_was_fallback"] = was_fallback
+
+	# Snapshot current HP and positions for each recorded decision
+	# (We always snapshot the latest state so it reflects post-decision state)
+	if _game != null:
+		var p1_pos = _game.p1.get_pos()
+		var p2_pos = _game.p2.get_pos()
+		entry["p1_hp"] = int(_game.p1.hp)
+		entry["p2_hp"] = int(_game.p2.hp)
+		entry["p1_pos"] = {"x": int(p1_pos.x), "y": int(p1_pos.y)}
+		entry["p2_pos"] = {"x": int(p2_pos.x), "y": int(p2_pos.y)}
+
+	# Once we have at least one player's decision, add to history
+	# (In simultaneous turns both arrive; in single-player turns only one does)
+	if entry.has("p1_action") or entry.has("p2_action"):
+		var history_entry = {"turn_id": turn_id}
+		if entry.has("p1_action"):
+			history_entry["p1_action"] = entry["p1_action"]
+			history_entry["p1_was_fallback"] = entry.get("p1_was_fallback", false)
+		if entry.has("p2_action"):
+			history_entry["p2_action"] = entry["p2_action"]
+			history_entry["p2_was_fallback"] = entry.get("p2_was_fallback", false)
+		if entry.has("p1_hp"):
+			history_entry["p1_hp"] = entry["p1_hp"]
+			history_entry["p2_hp"] = entry["p2_hp"]
+		if entry.has("p1_pos"):
+			history_entry["p1_pos"] = entry["p1_pos"]
+			history_entry["p2_pos"] = entry["p2_pos"]
+
+		# Check if we already have this turn_id in history; update if so
+		var found = false
+		for i in range(_turn_history.size() - 1, -1, -1):
+			if int(_turn_history[i].get("turn_id", -1)) == turn_id:
+				_turn_history[i] = history_entry
+				found = true
+				break
+		if not found:
+			_turn_history.append(history_entry)
 
 
 func _on_daemon_disconnected(_details: Dictionary) -> void:
@@ -349,6 +409,8 @@ func _attach_to_game(game, compatibility: Dictionary) -> void:
 	_compatibility_signature = ""
 	_pending_requests.clear()
 	_pending_timestamps.clear()
+	_turn_history = []
+	_turn_decisions = {}
 	_replay_snapshot = _snapshot_replay_directory("user://replay/autosave")
 	_game.connect("player_actionable", self, "_on_player_actionable")
 	_game.connect("game_ended", self, "_on_game_ended")

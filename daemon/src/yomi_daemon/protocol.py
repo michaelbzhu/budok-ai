@@ -486,19 +486,51 @@ def classify_object_type(raw_type: str) -> str:
 @dataclass(frozen=True, slots=True)
 class HistoryEntry(ProtocolModel):
     turn_id: int
-    player_id: str
-    action: str
+    # Legacy single-player fields (still accepted for backwards compatibility)
+    player_id: str | None = None
+    action: str | None = None
     was_fallback: bool = False
+    # Enriched per-turn fields (both players in one entry)
+    p1_action: str | None = None
+    p2_action: str | None = None
+    p1_was_fallback: bool = False
+    p2_was_fallback: bool = False
+    p1_hp: int | None = None
+    p2_hp: int | None = None
+    p1_pos: Vector2 | None = None
+    p2_pos: Vector2 | None = None
 
     @classmethod
     def from_dict(cls, raw: object, *, context: str) -> "HistoryEntry":
         mapping = _require_mapping(raw, context=context)
+        raw_p1_pos = mapping.get("p1_pos")
+        raw_p2_pos = mapping.get("p2_pos")
         return cls(
             turn_id=_require_integer(mapping.get("turn_id"), context=f"{context}.turn_id"),
-            player_id=_require_string(mapping.get("player_id"), context=f"{context}.player_id"),
-            action=_require_string(mapping.get("action"), context=f"{context}.action"),
+            player_id=_optional_string(mapping.get("player_id"), context=f"{context}.player_id"),
+            action=_optional_string(mapping.get("action"), context=f"{context}.action"),
             was_fallback=_require_bool(
                 mapping.get("was_fallback", False), context=f"{context}.was_fallback"
+            ),
+            p1_action=_optional_string(mapping.get("p1_action"), context=f"{context}.p1_action"),
+            p2_action=_optional_string(mapping.get("p2_action"), context=f"{context}.p2_action"),
+            p1_was_fallback=_require_bool(
+                mapping.get("p1_was_fallback", False), context=f"{context}.p1_was_fallback"
+            ),
+            p2_was_fallback=_require_bool(
+                mapping.get("p2_was_fallback", False), context=f"{context}.p2_was_fallback"
+            ),
+            p1_hp=_optional_integer(mapping.get("p1_hp"), context=f"{context}.p1_hp"),
+            p2_hp=_optional_integer(mapping.get("p2_hp"), context=f"{context}.p2_hp"),
+            p1_pos=(
+                Vector2.from_dict(raw_p1_pos, context=f"{context}.p1_pos")
+                if isinstance(raw_p1_pos, dict)
+                else None
+            ),
+            p2_pos=(
+                Vector2.from_dict(raw_p2_pos, context=f"{context}.p2_pos")
+                if isinstance(raw_p2_pos, dict)
+                else None
             ),
         )
 
