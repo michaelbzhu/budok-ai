@@ -267,6 +267,12 @@ def _legal_actions_payload(request: DecisionRequest) -> list[JsonObject]:
         rng = catalog_entry.get("range") if isinstance(catalog_entry, dict) else None
         if rng:
             entry["range"] = rng
+        beats = catalog_entry.get("beats") if isinstance(catalog_entry, dict) else None
+        if beats:
+            entry["beats"] = beats
+        weakness = catalog_entry.get("weakness") if isinstance(catalog_entry, dict) else None
+        if weakness:
+            entry["weakness"] = weakness
 
         if action.payload_spec:
             entry["payload_spec"] = action.payload_spec

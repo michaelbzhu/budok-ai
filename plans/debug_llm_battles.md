@@ -96,19 +96,27 @@ LightningSliceNeutral is listed as `speed: fast, damage: high, range: long` with
 
 ### Implementation
 
-- [ ] Add `weakness` or `risk` field to move catalog entries describing what beats the move or when it's punishable
-- [ ] Add `beats` field listing what situations/opponent actions the move is good against
-- [ ] Rewrite LightningSliceNeutral: add "loses to blocking, punishable on whiff" to description
-- [ ] Add combo/sequence context: "Pommel — fast, safe on block, **combos into 3Combo or HSlash2**"
-- [ ] Add stance context: "Brandish — Quick Draw stance entry. **Unlocks Shoot, PointBlank, and ShootDodge next turn.**"
-- [ ] Audit all 5 character sections for strict-dominance moves and add counterbalancing weaknesses
-- [ ] Add a `matchup_notes` field for moves that are particularly good/bad in specific situations (e.g., "UpwardSwipe — anti-air, **use when opponent is airborne**")
+- [x] Add `weakness` or `risk` field to move catalog entries describing what beats the move or when it's punishable
+- [x] Add `beats` field listing what situations/opponent actions the move is good against
+- [x] Rewrite LightningSliceNeutral: add "loses to blocking, punishable on whiff" to description
+- [x] Add combo/sequence context: "Pommel — fast, safe on block, **combos into 3Combo or HSlash2**"
+- [x] Add stance context: "Brandish — Quick Draw stance entry. **Unlocks Shoot, PointBlank, and ShootDodge next turn.**"
+- [x] Audit all 5 character sections for strict-dominance moves and add counterbalancing weaknesses
+- [x] Add a `matchup_notes` field for moves that are particularly good/bad in specific situations (e.g., "UpwardSwipe — anti-air, **use when opponent is airborne**")
 
 ### Acceptance criteria
 
-- [ ] No move in the catalog has speed=fast + damage=high + range=long without a listed weakness
-- [ ] Brandish description mentions it unlocks gun moves
-- [ ] At least 50% of offensive moves have a `beats` or `weakness` field
+- [x] No move in the catalog has speed=fast + damage=high + range=long without a listed weakness
+- [x] Brandish description mentions it unlocks gun moves
+- [x] At least 50% of offensive moves have a `beats` or `weakness` field
+
+### Execution notes for future agents
+
+- Used `beats` and `weakness` fields instead of separate `matchup_notes` — simpler, accomplishes same goal.
+- `stance_unlocks` array added to Brandish, QuickerDraw (Cowboy) and Drive (Robot) to signal which moves they gate.
+- LightningSliceNeutral now has explicit weakness: "loses to blocking and parry, punishable on whiff, predictable if overused".
+- prompt.py now injects `beats` and `weakness` from catalog into legal action entries shown to the LLM.
+- All five character sections audited. Every fast+high+long move now has a weakness listed.
 
 ---
 
