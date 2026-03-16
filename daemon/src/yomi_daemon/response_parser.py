@@ -255,6 +255,16 @@ def _normalize_decision_mapping(
     extra_mapping.setdefault("feint", False)
     extra_mapping.setdefault("reverse", False)
     extra_mapping.setdefault("prediction", None)
+
+    # Silently strip prediction if the chosen action doesn't support it.
+    # LLMs frequently include prediction even when the action has supports.prediction=false.
+    action_name = normalized.get("action")
+    if action_name and extra_mapping.get("prediction") is not None:
+        for la in request.legal_actions:
+            if la.action == action_name and not la.supports.prediction:
+                extra_mapping["prediction"] = None
+                break
+
     normalized["extra"] = extra_mapping
     return normalized
 

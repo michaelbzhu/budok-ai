@@ -6,6 +6,18 @@ extends Reference
 const MAX_HISTORY_ENTRIES := 10
 
 # Maps known game object types to gameplay-meaningful categories.
+# Reverse map from scene path to character name.
+# game.gd renames fighter nodes to "P1"/"P2", so fighter.name is unreliable.
+# fighter.filename returns the .tscn path used to instantiate the character.
+const SCENE_PATH_TO_CHARACTER := {
+	"res://characters/stickman/NinjaGuy.tscn": "Ninja",
+	"res://characters/swordandgun/SwordGuy.tscn": "Cowboy",
+	"res://characters/wizard/Wizard.tscn": "Wizard",
+	"res://characters/robo/Robot.tscn": "Robot",
+	"res://characters/mutant/Mutant.tscn": "Mutant",
+}
+
+# Maps known game object types to gameplay-meaningful categories.
 const OBJECT_CATEGORY_MAP := {
 	"Bullet": "projectile",
 	"Arrow": "projectile",
@@ -41,9 +53,10 @@ func build_observation(game, active_fighter, history: Array = []) -> Dictionary:
 func _build_fighter_observation(fighter) -> Dictionary:
 	var pos = fighter.get_pos()
 	var vel = fighter.get_vel()
+	var char_name = _resolve_character_name(fighter)
 	var obs = {
 		"id": _fighter_id(fighter),
-		"character": str(fighter.name),
+		"character": char_name,
 		"hp": int(fighter.hp),
 		"max_hp": int(fighter.MAX_HEALTH),
 		"meter": int(fighter.supers_available) * int(fighter.MAX_SUPER_METER) + int(fighter.super_meter),
@@ -79,7 +92,7 @@ func _build_fighter_observation(fighter) -> Dictionary:
 
 
 func _build_character_data(fighter) -> Dictionary:
-	var char_name = str(fighter.name)
+	var char_name = _resolve_character_name(fighter)
 	if char_name == "Cowboy":
 		return {
 			"bullets_left": int(fighter.bullets_left) if "bullets_left" in fighter else 0,
@@ -133,6 +146,21 @@ func _build_character_data(fighter) -> Dictionary:
 			data["gusts_in_combo"] = int(fighter.gusts_in_combo)
 		return data
 	return {}
+
+
+func _resolve_character_name(fighter) -> String:
+	# game.gd renames fighter nodes to "P1"/"P2", so fighter.name is unreliable.
+	# Use the .tscn scene path (fighter.filename) to reverse-lookup the character name.
+	if fighter.filename != null and str(fighter.filename) != "":
+		var scene_path = str(fighter.filename)
+		if scene_path in SCENE_PATH_TO_CHARACTER:
+			return SCENE_PATH_TO_CHARACTER[scene_path]
+	# Fallback: try get_class() (works for Cowboy, Robot, Mutant which declare class_name)
+	var cls = str(fighter.get_class())
+	if cls in ["Cowboy", "Robot", "Mutant"]:
+		return cls
+	# Final fallback: node name (will be "P1"/"P2" but better than nothing)
+	return str(fighter.name)
 
 
 func _build_stage(game) -> Dictionary:

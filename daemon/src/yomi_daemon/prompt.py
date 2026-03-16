@@ -79,6 +79,7 @@ def render_prompt(
         "If multiple actions look equivalent, prefer the lower-commitment option.\n"
         f"Target schema:\n```json\n{_json_dump(decision_output_json_schema())}\n```",
         f"## Turn Context\n```json\n{_json_dump(_turn_context(request, policy_id=policy_id))}\n```",
+        _situation_summary(request),
         f"## Observation\n```json\n{_json_dump(request.observation.to_dict())}\n```",
         f"## Legal Actions\n```json\n{_json_dump(_legal_actions_payload(request))}\n```",
     ]
@@ -177,6 +178,54 @@ def _turn_context(request: DecisionRequest, *, policy_id: str | None) -> JsonObj
         "ruleset_id": request.ruleset_id,
         "prompt_version": request.prompt_version,
     }
+
+
+def _situation_summary(request: DecisionRequest) -> str:
+    """Pre-compute a tactical situation summary so the LLM doesn't need to do arithmetic."""
+    obs = request.observation
+    fighters = obs.fighters
+    if len(fighters) < 2:
+        return ""
+
+    me = next((f for f in fighters if f.id == request.player_id), fighters[0])
+    opp = next((f for f in fighters if f.id != request.player_id), fighters[1])
+    distance = abs(me.position.x - opp.position.x)
+    if distance < 200:
+        range_label = "CLOSE"
+    elif distance < 400:
+        range_label = "MID"
+    else:
+        range_label = "FAR"
+
+    # Detect repetition in recent history
+    history = obs.history
+    my_key = f"{request.player_id}_action"
+    recent_actions: list[str] = []
+    for entry in history[-5:]:
+        d = entry.to_dict()
+        action = d.get(my_key)
+        if action:
+            recent_actions.append(action)
+    repetition_warning = ""
+    if len(recent_actions) >= 3:
+        last_3 = recent_actions[-3:]
+        if len(set(last_3)) == 1:
+            repetition_warning = (
+                f"\n**WARNING: You have used {last_3[0]} for 3+ turns in a row. "
+                f"Choose something DIFFERENT this turn.**"
+            )
+
+    lines = [
+        "## Situation",
+        f"- You are **{request.player_id}** ({me.character})",
+        f"- Your HP: {me.hp}/{me.max_hp} | Opponent HP: {opp.hp}/{opp.max_hp}",
+        f"- Distance: **{int(distance)} units ({range_label} range)**",
+        f"- Your state: {me.current_state} | Opponent state: {opp.current_state}",
+        f"- Meter: {me.meter} | Burst: {me.burst}",
+    ]
+    if repetition_warning:
+        lines.append(repetition_warning)
+    return "\n".join(lines)
 
 
 def _legal_actions_payload(request: DecisionRequest) -> list[JsonObject]:
