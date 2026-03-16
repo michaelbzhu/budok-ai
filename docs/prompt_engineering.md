@@ -137,6 +137,25 @@ Placeholder stubs exist for `google`, `local`, and `ollama` but are not register
 - 11.7% fallback rate — still some actions the LLM picks that don't match the legal set or have payload issues.
 - Rate limiting is a significant bottleneck with concurrent API calls (429 responses ~30% of requests).
 
+### Iteration 5: Robot vs Ninja cross-character match
+
+**Config**: Claude Sonnet 4.6, strategic_v1, temperature 0.7, Robot (P1) vs Ninja (P2), 200 HP.
+
+**Result**: 16 turns, Ninja wins by KO, **0 fallbacks** (0%).
+
+| Player | Character | Distinct Actions | Top Actions |
+|---|---|---|---|
+| P1 | Robot | 6 | Vacuum (3), Burst, CommandGrab, Slap, Continue, ParryHigh |
+| P2 | Ninja | 4 | NunChukLight (3), NunChukHeavy (2), Grab (2), Uppercut |
+
+**What's working**:
+- Character-specific play: Robot uses Vacuum (its best grab), CommandGrab, Slap. Ninja uses NunChukLight/Heavy, Uppercut.
+- Combo awareness: "opponent is in HurtGrounded state with 121 HP — they're knocked down and vulnerable"
+- Defensive adaptation: Robot uses Burst to escape combo when at 121/200 HP
+- Anti-repetition: "I've used NunChukHeavy twice in a row - I need to switch it up"
+- HP tracking: "I'm in HurtGrounded state with only 121/200 HP while the opponent has full HP"
+- Yomi reads: "Opponent just used Burst, which means they likely..."
+
 ### Key Lessons
 
 1. **Auto-fill payload defaults is essential**. Many game actions have required payload fields that are trivial (zero-range XY, boolean checkboxes). Without auto-fill, nearly every action with any payload_spec causes fallbacks.
