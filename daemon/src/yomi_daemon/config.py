@@ -23,6 +23,7 @@ from yomi_daemon.protocol import (
     MatchOptions,
     PlayerPolicyMapping,
 )
+from yomi_daemon.replay_capture import ReplayCaptureConfig
 from yomi_daemon.validation import REPO_ROOT, load_schema
 
 
@@ -115,6 +116,9 @@ class DaemonRuntimeConfig:
     trace_seed: int
     stage_id: str | None = None
     match_options: MatchOptions | None = None
+    replay_capture: ReplayCaptureConfig = field(
+        default_factory=lambda: ReplayCaptureConfig(enabled=True)
+    )
 
     def to_config_payload(self) -> ConfigPayload:
         return ConfigPayload(
@@ -346,6 +350,21 @@ def _resolve_match_options(raw: object, *, context: str) -> MatchOptions | None:
     return MatchOptions.from_dict(raw, context=context)
 
 
+def _resolve_replay_capture(raw: object, *, context: str) -> ReplayCaptureConfig:
+    if raw is None:
+        return ReplayCaptureConfig(enabled=True)
+    mapping = _require_mapping(raw, context=context)
+    return ReplayCaptureConfig(
+        enabled=mapping.get("enabled", True) is not False,
+        vm_machine=str(mapping.get("vm_machine", "ubuntu")),
+        display=str(mapping.get("display", ":99")),
+        resolution=str(mapping.get("resolution", "1280x720")),
+        framerate=int(mapping.get("framerate", 30)),
+        video_codec=str(mapping.get("video_codec", "libx264")),
+        preset=str(mapping.get("preset", "fast")),
+    )
+
+
 def _validate_document(document: Mapping[str, object]) -> None:
     error = best_match(_config_validator().iter_errors(document))
     if error is not None:
@@ -402,6 +421,9 @@ def parse_runtime_config_document(
         stage_id=_optional_string(merged.get("stage_id"), context=f"{context}.stage_id"),
         match_options=_resolve_match_options(
             merged.get("match_options"), context=f"{context}.match_options"
+        ),
+        replay_capture=_resolve_replay_capture(
+            merged.get("replay_capture"), context=f"{context}.replay_capture"
         ),
     )
 

@@ -184,6 +184,46 @@
           "description": "Override starting and max HP for both fighters. Game default is 1500."
         }
       }
+    },
+    "replay_capture": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Record replay video via ffmpeg after match ends. Default: true."
+        },
+        "vm_machine": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OrbStack VM machine name. Default: ubuntu."
+        },
+        "display": {
+          "type": "string",
+          "minLength": 1,
+          "description": "X display for recording. Default: :99."
+        },
+        "resolution": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Video resolution. Default: 1280x720."
+        },
+        "framerate": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Video framerate. Default: 30."
+        },
+        "video_codec": {
+          "type": "string",
+          "minLength": 1,
+          "description": "FFmpeg video codec. Default: libx264."
+        },
+        "preset": {
+          "type": "string",
+          "minLength": 1,
+          "description": "FFmpeg encoding preset. Default: fast."
+        }
+      }
     }
   }
 }

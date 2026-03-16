@@ -53,19 +53,19 @@ def build_argument_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--record-replay",
-        action="store_true",
-        default=False,
-        help="Record replay video via ffmpeg in the OrbStack VM after match ends.",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Record replay video via ffmpeg in the OrbStack VM after match ends (default: from config, or on).",
     )
     parser.add_argument(
         "--replay-vm",
-        default="ubuntu",
-        help="OrbStack VM machine name for replay recording (default: ubuntu).",
+        default=None,
+        help="OrbStack VM machine name for replay recording (default: from config, or ubuntu).",
     )
     parser.add_argument(
         "--replay-display",
-        default=":99",
-        help="X display for replay recording (default: :99).",
+        default=None,
+        help="X display for replay recording (default: from config, or :99).",
     )
     return parser
 
@@ -81,10 +81,17 @@ async def _run_async(args: argparse.Namespace) -> int:
             trace_seed=args.trace_seed,
         ),
     )
+    # CLI flags override config file values for replay capture
     replay_capture_config = ReplayCaptureConfig(
-        enabled=args.record_replay,
-        vm_machine=args.replay_vm,
-        display=args.replay_display,
+        enabled=args.record_replay
+        if args.record_replay is not None
+        else runtime_config.replay_capture.enabled,
+        vm_machine=args.replay_vm or runtime_config.replay_capture.vm_machine,
+        display=args.replay_display or runtime_config.replay_capture.display,
+        resolution=runtime_config.replay_capture.resolution,
+        framerate=runtime_config.replay_capture.framerate,
+        video_codec=runtime_config.replay_capture.video_codec,
+        preset=runtime_config.replay_capture.preset,
     )
     server = DaemonServer(
         host=runtime_config.transport.host,
