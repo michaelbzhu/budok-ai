@@ -90,8 +90,8 @@ runs/<timestamp>_<match_id>/
   result.json         Winner, end reason, turn count, status
   replay_index.json   Per-turn pointers into decisions/prompts
   stderr.log          Error output
-  replay.mp4          Replay video (when --record-replay enabled)
-  match.replay        Game replay file (when --record-replay enabled)
+  replay.mp4          Replay video (when replay_capture.enabled, default on)
+  match.replay        Game replay file (when replay_capture.enabled, default on)
 ```
 
 ### Quick result check
@@ -169,9 +169,11 @@ Provider decisions are inherently non-deterministic due to model sampling. The `
 Each run's `metrics.json` contains latency statistics, fallback counts, and token usage. Compare across runs to detect regressions.
 
 Key metrics to watch:
-- `average_latency_ms` — mean decision latency (baseline: <1ms, LLM: ~5-7s)
+- `average_latency_ms` — mean decision latency (baseline: <1ms, LLM: ~5-7s per concurrent pair)
 - `fallback_count` — should be 0 for baseline, <5% for LLM
 - `tokens_in_total` / `tokens_out_total` — total token usage for cost tracking
+
+Note: decision requests for both players are processed concurrently. When both sides use LLM policies, two API calls run in parallel, so per-turn-pair latency is roughly the max of the two calls (~7s) rather than their sum (~14s).
 
 ## Prompt variants
 

@@ -15,6 +15,7 @@ YOMI Hustle is only available for Windows and Linux on Steam. On macOS, we run t
 - [x] Step 8: Launch the game headlessly (596-decision match completed to KO, baseline/random)
 - [x] Step 9: Test replay video recording (713-turn match, 68s replay video, 3.2 MB H.264 1280x720@30fps)
 - [x] Step 10: First LLM match (Claude Sonnet 4 vs greedy_damage, 204 decisions, 0 fallbacks, 5.6s avg latency)
+- [x] Step 11: First LLM vs LLM match (Claude Sonnet 4 vs Claude Sonnet 4, 54 turns, 0 fallbacks, 7.3s avg latency, concurrent processing)
 
 ## Architecture
 
@@ -319,6 +320,7 @@ Fixed by adding XYPlot/CountOption detection in LegalActionBuilder, uppercase DI
 - `max()`/`min()` return `float`, not `int` — wrap in `int()` when the function declares `-> int`
 - `seed` is a built-in function name and cannot be used as a parameter name
 - `Array.slice()` does not exist — use manual iteration
+- `JSON.parse()` returns ALL numbers as `TYPE_REAL` (float), never `TYPE_INT` — integer type checks in `DecisionValidator.gd` must accept `TYPE_REAL` values that are whole numbers (`value == floor(value)`)
 
 ## Caveats
 
@@ -363,12 +365,32 @@ Results land in `runs/<timestamp>_<match_id>/` on the Mac (where the daemon runs
 - `prompts.jsonl` — every prompt sent to LLMs
 - `metrics.json` — latency, fallback rate, legality
 - `result.json` — winner, final HP
-- `replay.mp4` — replay video (when `--record-replay` enabled)
-- `match.replay` — game replay file (when `--record-replay` enabled)
+- `replay.mp4` — replay video (when replay recording enabled, default on)
+- `match.replay` — game replay file (when replay recording enabled, default on)
 
 ## Replay video recording
 
 After a match ends, the game automatically replays it without decision-time pauses — it looks like a real-time fighting game. The mod detects this replay playback and signals the daemon to record it via ffmpeg.
+
+Replay recording is enabled by default. It can be configured in the daemon config file via the `replay_capture` section, or overridden with CLI flags (`--record-replay` / `--no-record-replay`, `--replay-vm`, `--replay-display`).
+
+### Config file settings
+
+```json
+{
+  "replay_capture": {
+    "enabled": true,
+    "vm_machine": "ubuntu",
+    "display": ":99",
+    "resolution": "1280x720",
+    "framerate": 30,
+    "video_codec": "libx264",
+    "preset": "fast"
+  }
+}
+```
+
+All fields are optional and have sensible defaults.
 
 ### How it works
 
@@ -384,14 +406,20 @@ After a match ends, the game automatically replays it without decision-time paus
 
 - `ffmpeg` installed in the VM (included in Step 3)
 - Game launched on a fixed Xvfb display (`:99`, as in Step 8)
-- Daemon started with `--record-replay`
+- Replay recording is enabled by default; disable with `--no-record-replay` or `replay_capture.enabled: false` in config
 
 ### Running with replay recording
+
+Replay recording is on by default. To explicitly control it:
 
 **Daemon side** (on your Mac):
 
 ```bash
-uv run --project daemon yomi-daemon --host 0.0.0.0 --port 8765 --record-replay
+# Default: replay recording enabled
+uv run --project daemon yomi-daemon --host 0.0.0.0 --port 8765
+
+# Explicitly disable:
+uv run --project daemon yomi-daemon --host 0.0.0.0 --port 8765 --no-record-replay
 ```
 
 **Game side** (in the VM):
@@ -421,7 +449,7 @@ uv run --project daemon yomi-daemon --host 0.0.0.0 --record-replay \
 
 ### Replay file saving
 
-Even without `--record-replay`, the mod now saves replay files after every match. The game normally only autosaves replays for multiplayer matches, but our mod calls `ReplayManager.save_replay()` explicitly for singleplayer matches. The replay path is reported in the `match_ended` envelope and recorded in `result.json`.
+Even with replay recording disabled, the mod saves replay files after every match. The game normally only autosaves replays for multiplayer matches, but our mod calls `ReplayManager.save_replay()` explicitly for singleplayer matches. The replay path is reported in the `match_ended` envelope and recorded in `result.json`.
 
 Replay files are saved to `user://replay/autosave/` inside the VM, which resolves to `~/.local/share/godot/app_userdata/Your Only Move Is HUSTLE/replay/autosave/`.
 
@@ -476,6 +504,32 @@ The first LLM-backed match ran successfully: **Claude Sonnet 4 (P1) vs baseline/
 - `match_options.starting_hp = 300` shortened the match from 1500 HP default
 
 **Critical bug fixed:** `config.py` defaulted `resolved_env` to `{}` instead of `os.environ`, so API keys from environment variables were never resolved via the CLI path. Fixed in commit `83432e0`.
+
+## First LLM vs LLM match
+
+The first LLM-vs-LLM match ran successfully: **Claude Sonnet 4 (P1) vs Claude Sonnet 4 (P2)**, 100 HP starting health, strategic_v1 prompt, concurrent decision processing.
+
+**Results:**
+
+| Metric | Value |
+|---|---|
+| Total turns | 54 |
+| Fallbacks | 0 |
+| Avg latency | 7,300ms (concurrent pair) |
+| Tokens consumed | ~363K total |
+| Starting HP | 100 each |
+| Final HP | P1: 1, P2: 10 |
+| Winner | P1 (KO) |
+
+**Config used:** `daemon/config/llm_v_llm.json`
+
+**Key observations:**
+- Zero fallbacks — both players parsed correctly every turn
+- Concurrent decision processing: both API calls run in parallel (~7s per turn pair instead of ~14s sequential)
+- WebSocket ping timeout increased to 30s to prevent disconnects during LLM processing
+- `match_options.starting_hp = 100` kept the match short for testing
+- Correction retry enabled for both players
+- Godot 3.5.1 integer validation fix was critical — all JSON numbers parse as floats
 
 **Running an LLM match:**
 

@@ -117,9 +117,11 @@ Before any turn requests flow, the mod and daemon perform a one-time handshake:
 
 `server.py._run_match_loop()` receives envelopes from the WebSocket and routes by `type`:
 
-- **`decision_request`** → `_handle_decision_request()`
+- **`decision_request`** → `_handle_decision_request()` (dispatched concurrently via `asyncio.create_task`)
 - **`event`** → logged to artifact writer
-- **`match_ended`** → triggers artifact finalization and session cleanup
+- **`match_ended`** → waits for in-flight decision tasks, then triggers artifact finalization and session cleanup
+
+Decision requests for both players are processed concurrently. When two `decision_request` envelopes arrive back-to-back (one per player), their LLM API calls run in parallel, roughly halving per-turn-pair latency compared to sequential processing.
 
 On the first `decision_request`, the server lazily initializes:
 - `MatchManifest` with pinned config, versions, and seed
@@ -235,7 +237,7 @@ After the match ends, the game automatically replays the match ~120 ticks later 
 5. When the replay game's `game_finished` becomes `true`, the mod sends `ReplayEnded`.
 6. The daemon stops ffmpeg, pulls the video and replay file from the VM into the run directory.
 
-This phase only runs when the daemon is started with `--record-replay`. The mod-side replay saving always occurs.
+Replay recording is enabled by default. It can be controlled via `replay_capture.enabled` in the daemon config file, or overridden with `--record-replay` / `--no-record-replay` CLI flags. The mod-side replay saving always occurs regardless of this setting.
 
 ## Artifact Layout After A Complete Match
 
@@ -249,6 +251,6 @@ runs/<timestamp>_<match_id>/
   result.json         ← winner, end reason, turn count, status
   replay_index.json   ← per-turn pointers into decisions and prompts
   stderr.log          ← error output
-  replay.mp4          ← replay video (when --record-replay is enabled)
-  match.replay        ← game replay file (when --record-replay is enabled)
+  replay.mp4          ← replay video (when replay_capture.enabled, default on)
+  match.replay        ← game replay file (when replay_capture.enabled, default on)
 ```

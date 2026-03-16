@@ -169,7 +169,7 @@ Add a policy entry to the `policies` object and reference it in `policy_mapping`
 }
 ```
 
-For LLM-backed policies, set `decision_timeout_ms` to 15000 to accommodate API latency. See `daemon/config/llm_first_test.json` for a complete example.
+For LLM-backed policies, set `decision_timeout_ms` to 30000 to accommodate API latency. Decision requests for both players are processed concurrently. See `daemon/config/llm_first_test.json` and `daemon/config/llm_v_llm.json` for complete examples.
 
 ## 8. Quality gates
 

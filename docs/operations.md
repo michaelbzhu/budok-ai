@@ -92,6 +92,10 @@ uv run --project daemon python scripts/mod_runtime_harness.py
   environment-variable secret resolution.
 - Provider credentials stay out of JSON config files. Policy entries reference them by
   `credential_env_var`, and the loader resolves the value from the current process environment.
+- Replay video recording is enabled by default. Control it via `replay_capture.enabled` in the
+  config file, or override with `--record-replay` / `--no-record-replay` CLI flags. Additional
+  replay settings (vm_machine, display, resolution, framerate, video_codec, preset) can be set
+  in the `replay_capture` config section.
 
 ## Security
 
@@ -132,8 +136,8 @@ runs/<timestamp>_<match_id>/
   result.json
   replay_index.json
   stderr.log
-  replay.mp4          (when --record-replay enabled)
-  match.replay        (when --record-replay enabled)
+  replay.mp4          (when replay_capture.enabled, default on)
+  match.replay        (when replay_capture.enabled, default on)
 ```
 
 The initial manifest skeleton is intended to exist before the first turn so failed or incomplete
@@ -153,7 +157,7 @@ matches still retain pinned config, version, and seed metadata.
 
 ## Performance
 
-`decision_timeout_ms` controls the per-turn decision deadline. Default is 10000ms. For LLM-backed policies, 15000ms is recommended to accommodate API latency.
+`decision_timeout_ms` controls the per-turn decision deadline. Default is 10000ms. For LLM-backed policies, 30000ms is recommended to accommodate API latency. Decision requests for both players are processed concurrently — when two requests arrive in the same turn, their LLM API calls run in parallel (~7s per concurrent pair vs ~14s sequential).
 
 `metrics.json` in each run directory tracks per-match latency statistics, fallback counts, and token usage. Use it to identify regressions after code changes.
 

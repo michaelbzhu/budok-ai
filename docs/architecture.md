@@ -95,6 +95,7 @@ Config files: `config/ModOptions.gd`, `config/default_config.json`.
 - `trace_seed` — reproducibility seed
 - `stage_id` — optional stage override
 - `match_options` — optional match configuration (e.g. `starting_hp`)
+- `replay_capture` — replay video recording settings (enabled, vm_machine, display, resolution, framerate, video_codec, preset); default enabled
 
 `DaemonRuntimeConfig.to_config_payload()` emits the narrower `ConfigPayload` used for handshake pinning and manifests. The `effective_stage_id` property resolves from `stage_id` or `tournament.fixed_stage`.
 
@@ -106,7 +107,7 @@ Daemon startup resolves config in this order:
 
 1. Built-in defaults in `yomi_daemon.config` for transport, logging, decision timeout, character selection, tournament defaults, and `trace_seed`.
 2. A selected JSON config file, defaulting to `daemon/config/default_config.json`.
-3. CLI overrides from `yomi-daemon --host/--port/--p1-policy/--p2-policy/--trace-seed/--log-level`.
+3. CLI overrides from `yomi-daemon --host/--port/--p1-policy/--p2-policy/--trace-seed/--log-level/--record-replay/--no-record-replay/--replay-vm/--replay-display`.
 4. Environment lookup for provider credentials referenced by `credential_env_var`.
 
 Environment variables only supply secret values. They never change structural settings such as policy IDs or transport bindings.
