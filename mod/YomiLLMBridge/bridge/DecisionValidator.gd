@@ -34,46 +34,59 @@ func validate_decision(decision: Dictionary, request: Dictionary) -> String:
 	# Envelope shape: must be action_decision type
 	var envelope_error = _validate_envelope_shape(decision)
 	if envelope_error != "":
+		printerr("YomiLLMBridge VALIDATE FAIL envelope_shape: %s" % envelope_error)
 		return envelope_error
 
 	var payload = decision["payload"]
 
 	# Match ID check
 	if str(payload.get("match_id", "")) != str(request.get("match_id", "")):
+		printerr("YomiLLMBridge VALIDATE FAIL stale match_id: payload=%s request=%s" % [payload.get("match_id", ""), request.get("match_id", "")])
 		return "stale_response"
 
 	# Turn ID check
 	if int(payload.get("turn_id", -1)) != int(request.get("turn_id", -1)):
+		printerr("YomiLLMBridge VALIDATE FAIL stale turn_id: payload=%s request=%s" % [payload.get("turn_id", -1), request.get("turn_id", -1)])
 		return "stale_response"
 
 	# Action must be a non-empty string
 	var action_name = str(payload.get("action", ""))
 	if action_name == "":
+		printerr("YomiLLMBridge VALIDATE FAIL empty action")
 		return "malformed_output"
 
 	# Extra must be a dict with feint and reverse bools
 	var extra = payload.get("extra")
 	if extra == null or not (extra is Dictionary):
+		printerr("YomiLLMBridge VALIDATE FAIL extra not dict: %s" % [extra])
 		return "malformed_output"
 	if not extra.has("feint") or not extra.has("reverse") or not extra.has("prediction"):
+		printerr("YomiLLMBridge VALIDATE FAIL extra missing keys: %s" % [extra.keys()])
 		return "malformed_output"
 
 	# Find matching legal action
 	var legal_actions = request.get("legal_actions", [])
 	var matched_action = _find_legal_action(action_name, legal_actions)
 	if matched_action == null:
+		var legal_names = []
+		for la in legal_actions:
+			legal_names.append(str(la.get("action", "?")))
+		printerr("YomiLLMBridge VALIDATE FAIL action '%s' not in legal set: %s" % [action_name, legal_names])
 		return "illegal_output"
 
 	# Validate extras against supports
 	var extras_error = _validate_extras(extra, matched_action)
 	if extras_error != "":
+		printerr("YomiLLMBridge VALIDATE FAIL extras: %s extra=%s supports=%s" % [extras_error, extra, matched_action.get("supports", {})])
 		return extras_error
 
 	# Validate payload data against payload_spec
 	var data_error = _validate_payload_data(payload.get("data"), matched_action)
 	if data_error != "":
+		printerr("YomiLLMBridge VALIDATE FAIL payload_data: %s data=%s spec=%s" % [data_error, payload.get("data"), matched_action.get("payload_spec", {})])
 		return data_error
 
+	printerr("YomiLLMBridge VALIDATE OK action=%s turn=%s" % [action_name, payload.get("turn_id", "?")])
 	return ""
 
 
@@ -248,11 +261,13 @@ func _validate_payload_value(value, spec: Dictionary, context: String, field_map
 							return property_error
 					continue
 				if additional_properties == false:
+					printerr("YomiLLMBridge ADDL_PROPS FAIL key=%s not in properties=%s context=%s" % [key, properties.keys(), context])
 					return "illegal_output"
 			var required = spec.get("required", [])
 			if required is Array:
 				for required_key in required:
 					if required_key is String and not value.has(required_key):
+						printerr("YomiLLMBridge REQUIRED FAIL key=%s not in value=%s context=%s" % [required_key, value.keys(), context])
 						return "illegal_output"
 
 	if value is Array:
@@ -298,22 +313,52 @@ func _validate_descriptor_type(value, spec: Dictionary) -> String:
 	if normalized_type == "":
 		return ""
 	if normalized_type == "string":
-		return "" if value is String else "illegal_output"
+		if not (value is String):
+			printerr("YomiLLMBridge TYPE FAIL string: typeof=%d value=%s" % [typeof(value), value])
+			return "illegal_output"
+		return ""
 	if normalized_type == "integer":
-		return "" if (typeof(value) == TYPE_INT) else "illegal_output"
+		if typeof(value) == TYPE_INT:
+			return ""
+		# Godot 3.5.1 JSON.parse() returns all numbers as TYPE_REAL (float).
+		# Accept floats that are whole numbers as valid integers.
+		if typeof(value) == TYPE_REAL and value == floor(value):
+			return ""
+		printerr("YomiLLMBridge TYPE FAIL integer: typeof=%d value=%s" % [typeof(value), value])
+		return "illegal_output"
 	if normalized_type == "number":
-		return "" if _is_number(value) else "illegal_output"
+		if not _is_number(value):
+			printerr("YomiLLMBridge TYPE FAIL number: typeof=%d value=%s" % [typeof(value), value])
+			return "illegal_output"
+		return ""
 	if normalized_type == "boolean":
-		return "" if typeof(value) == TYPE_BOOL else "illegal_output"
+		if typeof(value) != TYPE_BOOL:
+			printerr("YomiLLMBridge TYPE FAIL boolean: typeof=%d value=%s" % [typeof(value), value])
+			return "illegal_output"
+		return ""
 	if normalized_type == "object":
-		return "" if value is Dictionary else "illegal_output"
+		if not (value is Dictionary):
+			printerr("YomiLLMBridge TYPE FAIL object: typeof=%d value=%s" % [typeof(value), value])
+			return "illegal_output"
+		return ""
 	if normalized_type == "array":
-		return "" if value is Array else "illegal_output"
-	return "" if value is String else "illegal_output"
+		if not (value is Array):
+			printerr("YomiLLMBridge TYPE FAIL array: typeof=%d value=%s" % [typeof(value), value])
+			return "illegal_output"
+		return ""
+	if not (value is String):
+		printerr("YomiLLMBridge TYPE FAIL fallback_string: typeof=%d value=%s" % [typeof(value), value])
+		return "illegal_output"
+	return ""
 
 
 func _optional_int(value):
-	return value if typeof(value) == TYPE_INT else null
+	if typeof(value) == TYPE_INT:
+		return value
+	# Godot 3.5.1 JSON.parse() returns all numbers as TYPE_REAL.
+	if typeof(value) == TYPE_REAL and value == floor(value):
+		return int(value)
+	return null
 
 
 func _optional_number(value):

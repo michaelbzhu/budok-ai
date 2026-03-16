@@ -121,7 +121,13 @@ class DaemonServer:
                 self.host,
             )
 
-        self._server = await serve(self._handle_connection, self.host, self.port)
+        self._server = await serve(
+            self._handle_connection,
+            self.host,
+            self.port,
+            ping_interval=30,
+            ping_timeout=30,
+        )
         self._stopped.clear()
         self.logger.info(
             "Daemon server listening on ws://%s:%d%s",
@@ -202,6 +208,7 @@ class DaemonServer:
 
         # Per-player last valid decision tracking for LAST_VALID_REPLAYABLE fallback
         last_valid: dict[str, ActionDecision] = {}
+        pending_decisions: set[asyncio.Task[None]] = set()
         errors: list[str] = []
         match_ended_payload: MatchEnded | None = None
         match_id: str | None = None
@@ -270,13 +277,19 @@ class DaemonServer:
                             ).to_dict()
                         )
 
-                    await self._handle_decision_request(
-                        session=session,
-                        connection=connection,
-                        request=request,
-                        writer=writer,
-                        last_valid=last_valid,
+                    # Fire off decision requests concurrently so both
+                    # players' LLM calls run in parallel.
+                    task = asyncio.create_task(
+                        self._handle_decision_request(
+                            session=session,
+                            connection=connection,
+                            request=request,
+                            writer=writer,
+                            last_valid=last_valid,
+                        )
                     )
+                    pending_decisions.add(task)
+                    task.add_done_callback(pending_decisions.discard)
 
                 elif envelope.type is MessageType.EVENT:
                     event = cast(Event, envelope.payload)
@@ -298,6 +311,9 @@ class DaemonServer:
                         match_ended_payload.end_reason,
                         match_ended_payload.total_turns,
                     )
+                    # Wait for any in-flight decision tasks to complete
+                    if pending_decisions:
+                        await asyncio.gather(*pending_decisions, return_exceptions=True)
                     break
 
                 else:
@@ -317,6 +333,13 @@ class DaemonServer:
             errors.append(msg)
             if writer is not None:
                 writer.append_stderr(f"{msg}\n")
+        finally:
+            # Cancel and await any in-flight decision tasks
+            for task in pending_decisions:
+                task.cancel()
+            if pending_decisions:
+                await asyncio.gather(*pending_decisions, return_exceptions=True)
+            pending_decisions.clear()
 
         # Finalize match artifacts (decisions, prompts, result)
         if writer is not None:
@@ -448,7 +471,16 @@ class DaemonServer:
             ts=_utc_now(),
             payload=decision,
         )
-        await connection.send(json.dumps(response_envelope.to_dict()))
+        try:
+            await connection.send(json.dumps(response_envelope.to_dict()))
+        except ConnectionClosed:
+            self.logger.warning(
+                "Session %s: connection closed while sending turn %d for %s",
+                session.session_id,
+                request.turn_id,
+                player_id,
+            )
+            return
 
         self.logger.debug(
             "Session %s: turn %d player %s -> action=%s fallback=%s",
