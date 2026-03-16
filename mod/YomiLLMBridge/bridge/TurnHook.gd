@@ -109,6 +109,11 @@ func _on_player_actionable() -> void:
 	if _game == null or _match_ended:
 		return
 
+	# Retroactively enrich the most recent history entry with outcome feedback
+	# At this point the game has resolved the previous tick, so HP/position
+	# reflect post-resolution state
+	_enrich_last_history_entry()
+
 	var actionable_players = _get_actionable_players()
 	for player_id in actionable_players:
 		var fighter = _game.p1 if player_id == "p1" else _game.p2
@@ -206,8 +211,9 @@ func _apply_valid_decision(
 	# Record as last valid decision for potential replay
 	_fallback_handler.record_valid_decision(player_id, payload)
 
-	# Record decision into turn history
-	_record_turn_decision(int(request.get("turn_id", 0)), player_id, action_name, false)
+	# Record decision into turn history (keyed by game tick for proper pairing)
+	var game_tick = int(_game.current_tick) if _game != null else 0
+	_record_turn_decision(int(request.get("turn_id", 0)), game_tick, player_id, action_name, false)
 
 	_telemetry.emit_decision_received(
 		int(request.get("turn_id", 0)), player_id, action_name, latency_ms, policy_id
@@ -241,8 +247,9 @@ func _apply_fallback(
 	if strategy.begins_with("fallback/"):
 		strategy = strategy.substr(9)
 
-	# Record fallback into turn history
-	_record_turn_decision(int(request.get("turn_id", 0)), player_id, fallback_action, true)
+	# Record fallback into turn history (keyed by game tick for proper pairing)
+	var game_tick = int(_game.current_tick) if _game != null else 0
+	_record_turn_decision(int(request.get("turn_id", 0)), game_tick, player_id, fallback_action, true)
 
 	_telemetry.emit_decision_fallback(
 		int(request.get("turn_id", 0)),
@@ -258,13 +265,13 @@ func _apply_fallback(
 	_clear_pending(pending_key)
 
 
-func _record_turn_decision(turn_id: int, player_id: String, action_name: String, was_fallback: bool) -> void:
-	"""Record a player's decision for a turn. Once both players have acted in a
-	turn pair, snapshot HP and positions into a history entry."""
-	var tid_key = str(turn_id)
-	if not _turn_decisions.has(tid_key):
-		_turn_decisions[tid_key] = {}
-	var entry = _turn_decisions[tid_key]
+func _record_turn_decision(turn_id: int, game_tick: int, player_id: String, action_name: String, was_fallback: bool) -> void:
+	"""Record a player's decision for a turn. Both players' decisions in the
+	same game tick are merged into a single history entry keyed by tick."""
+	var tick_key = str(game_tick)
+	if not _turn_decisions.has(tick_key):
+		_turn_decisions[tick_key] = {"turn_id": turn_id, "game_tick": game_tick}
+	var entry = _turn_decisions[tick_key]
 	var prefix = player_id  # "p1" or "p2"
 	entry[prefix + "_action"] = action_name
 	entry[prefix + "_was_fallback"] = was_fallback
@@ -279,10 +286,13 @@ func _record_turn_decision(turn_id: int, player_id: String, action_name: String,
 		entry["p1_pos"] = {"x": int(p1_pos.x), "y": int(p1_pos.y)}
 		entry["p2_pos"] = {"x": int(p2_pos.x), "y": int(p2_pos.y)}
 
-	# Once we have at least one player's decision, add to history
+	# Build history entry once we have at least one player's decision
 	# (In simultaneous turns both arrive; in single-player turns only one does)
 	if entry.has("p1_action") or entry.has("p2_action"):
-		var history_entry = {"turn_id": turn_id}
+		var history_entry = {
+			"turn_id": int(entry.get("turn_id", turn_id)),
+			"game_tick": game_tick,
+		}
 		if entry.has("p1_action"):
 			history_entry["p1_action"] = entry["p1_action"]
 			history_entry["p1_was_fallback"] = entry.get("p1_was_fallback", false)
@@ -296,15 +306,17 @@ func _record_turn_decision(turn_id: int, player_id: String, action_name: String,
 			history_entry["p1_pos"] = entry["p1_pos"]
 			history_entry["p2_pos"] = entry["p2_pos"]
 
-		# Check if we already have this turn_id in history; update if so
+		# Check if we already have this game_tick in history; update if so
 		var found = false
 		for i in range(_turn_history.size() - 1, -1, -1):
-			if int(_turn_history[i].get("turn_id", -1)) == turn_id:
+			if int(_turn_history[i].get("game_tick", -1)) == game_tick:
 				_turn_history[i] = history_entry
 				found = true
 				break
 		if not found:
 			_turn_history.append(history_entry)
+		# Keep history sorted by game_tick
+		_turn_history.sort_custom(self, "_sort_history_by_tick")
 
 
 func _on_daemon_disconnected(_details: Dictionary) -> void:
@@ -708,6 +720,102 @@ func _has_property(target, property_name: String) -> bool:
 		if str(property_data.get("name", "")) == property_name:
 			return true
 	return false
+
+
+func _enrich_last_history_entry() -> void:
+	"""After the game resolves a tick, retroactively add outcome feedback to the
+	most recent history entry by comparing post-resolution HP to the snapshot."""
+	if _turn_history.empty() or _game == null:
+		return
+	var last = _turn_history[_turn_history.size() - 1]
+	# Skip if already enriched
+	if last.has("p1_hp_delta"):
+		return
+
+	var prev_p1_hp = int(last.get("p1_hp", int(_game.p1.hp)))
+	var prev_p2_hp = int(last.get("p2_hp", int(_game.p2.hp)))
+	var now_p1_hp = int(_game.p1.hp)
+	var now_p2_hp = int(_game.p2.hp)
+
+	var p1_delta = now_p1_hp - prev_p1_hp  # negative = took damage
+	var p2_delta = now_p2_hp - prev_p2_hp
+
+	last["p1_hp_delta"] = p1_delta
+	last["p2_hp_delta"] = p2_delta
+
+	# Update HP/position to post-resolution values
+	last["p1_hp"] = now_p1_hp
+	last["p2_hp"] = now_p2_hp
+	var p1_pos = _game.p1.get_pos()
+	var p2_pos = _game.p2.get_pos()
+	last["p1_pos"] = {"x": int(p1_pos.x), "y": int(p1_pos.y)}
+	last["p2_pos"] = {"x": int(p2_pos.x), "y": int(p2_pos.y)}
+
+	# Infer outcomes from HP deltas and game state
+	last["p1_outcome"] = _infer_outcome(p1_delta, p2_delta, _game.p1, _game.p2, last)
+	last["p2_outcome"] = _infer_outcome(p2_delta, p1_delta, _game.p2, _game.p1, last)
+
+
+func _infer_outcome(my_delta: int, opp_delta: int, my_fighter, opp_fighter, entry: Dictionary) -> String:
+	"""Infer what happened to a player based on HP deltas and state."""
+	# I took damage
+	if my_delta < 0:
+		if int(opp_fighter.combo_count) > 1:
+			return "combo"
+		if entry.has("p2_action") and entry.has("p1_action"):
+			# Opponent had a grab action
+			var opp_prefix = "p2_action" if my_fighter == _game.p1 else "p1_action"
+			var opp_action = str(entry.get(opp_prefix, ""))
+			if opp_action.to_lower().find("grab") != -1 or opp_action == "Lasso" or opp_action == "IzunaDrop" or opp_action == "Impale":
+				return "grabbed"
+		return "hit"
+	# I dealt damage (opponent took damage, I didn't)
+	if opp_delta < 0 and my_delta >= 0:
+		return "hit"
+	# Both took no damage
+	if my_delta == 0 and opp_delta == 0:
+		if int(my_fighter.blockstun_ticks) > 0:
+			return "blocked"
+		var my_action_key = "p1_action" if my_fighter == _game.p1 else "p2_action"
+		var my_action = str(entry.get(my_action_key, ""))
+		var opp_action_key = "p2_action" if my_fighter == _game.p1 else "p1_action"
+		var opp_action = str(entry.get(opp_action_key, ""))
+		# Both attacked but no damage = clashed
+		if _is_attack_action(my_action) and _is_attack_action(opp_action):
+			return "clashed"
+		if _is_defense_action(my_action):
+			return "blocked"
+		return "neutral"
+	return "neutral"
+
+
+func _is_attack_action(action_name: String) -> bool:
+	"""Heuristic: common attack action patterns."""
+	var lower = action_name.to_lower()
+	return (
+		lower.find("slash") != -1 or lower.find("kick") != -1 or
+		lower.find("punch") != -1 or lower.find("combo") != -1 or
+		lower.find("swipe") != -1 or lower.find("stinger") != -1 or
+		lower.find("shoot") != -1 or lower.find("blast") != -1 or
+		lower.find("cleave") != -1 or lower.find("strike") != -1 or
+		lower.find("slice") != -1 or lower.find("bolt") != -1 or
+		lower == "grab" or lower == "lasso" or lower.find("impale") != -1
+	)
+
+
+func _is_defense_action(action_name: String) -> bool:
+	"""Heuristic: common defense action patterns."""
+	var lower = action_name.to_lower()
+	return (
+		lower.find("parry") != -1 or lower.find("block") != -1 or
+		lower.find("roll") != -1 or lower.find("dodge") != -1 or
+		lower.find("burst") != -1 or lower == "wait" or
+		lower == "spotdodge" or lower == "techroll"
+	)
+
+
+func _sort_history_by_tick(a: Dictionary, b: Dictionary) -> bool:
+	return int(a.get("game_tick", 0)) < int(b.get("game_tick", 0))
 
 
 func _get_script_dir() -> String:

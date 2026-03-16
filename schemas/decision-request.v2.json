@@ -338,6 +338,10 @@
           "type": "integer",
           "minimum": 0
         },
+        "game_tick": {
+          "type": "integer",
+          "minimum": 0
+        },
         "player_id": {
           "type": "string",
           "minLength": 1
@@ -374,6 +378,20 @@
         },
         "p2_pos": {
           "$ref": "#/$defs/vector2"
+        },
+        "p1_hp_delta": {
+          "type": "integer"
+        },
+        "p2_hp_delta": {
+          "type": "integer"
+        },
+        "p1_outcome": {
+          "type": "string",
+          "enum": ["hit", "blocked", "whiffed", "clashed", "grabbed", "dodged", "combo", "neutral"]
+        },
+        "p2_outcome": {
+          "type": "string",
+          "enum": ["hit", "blocked", "whiffed", "clashed", "grabbed", "dodged", "combo", "neutral"]
         }
       }
     },

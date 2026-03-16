@@ -486,6 +486,8 @@ def classify_object_type(raw_type: str) -> str:
 @dataclass(frozen=True, slots=True)
 class HistoryEntry(ProtocolModel):
     turn_id: int
+    # Game tick used as merge key so both players' actions in the same tick are paired
+    game_tick: int | None = None
     # Legacy single-player fields (still accepted for backwards compatibility)
     player_id: str | None = None
     action: str | None = None
@@ -499,6 +501,11 @@ class HistoryEntry(ProtocolModel):
     p2_hp: int | None = None
     p1_pos: Vector2 | None = None
     p2_pos: Vector2 | None = None
+    # Outcome feedback (populated after tick resolution)
+    p1_hp_delta: int | None = None
+    p2_hp_delta: int | None = None
+    p1_outcome: str | None = None
+    p2_outcome: str | None = None
 
     @classmethod
     def from_dict(cls, raw: object, *, context: str) -> "HistoryEntry":
@@ -507,6 +514,7 @@ class HistoryEntry(ProtocolModel):
         raw_p2_pos = mapping.get("p2_pos")
         return cls(
             turn_id=_require_integer(mapping.get("turn_id"), context=f"{context}.turn_id"),
+            game_tick=_optional_integer(mapping.get("game_tick"), context=f"{context}.game_tick"),
             player_id=_optional_string(mapping.get("player_id"), context=f"{context}.player_id"),
             action=_optional_string(mapping.get("action"), context=f"{context}.action"),
             was_fallback=_require_bool(
@@ -532,6 +540,14 @@ class HistoryEntry(ProtocolModel):
                 if isinstance(raw_p2_pos, dict)
                 else None
             ),
+            p1_hp_delta=_optional_integer(
+                mapping.get("p1_hp_delta"), context=f"{context}.p1_hp_delta"
+            ),
+            p2_hp_delta=_optional_integer(
+                mapping.get("p2_hp_delta"), context=f"{context}.p2_hp_delta"
+            ),
+            p1_outcome=_optional_string(mapping.get("p1_outcome"), context=f"{context}.p1_outcome"),
+            p2_outcome=_optional_string(mapping.get("p2_outcome"), context=f"{context}.p2_outcome"),
         )
 
 
