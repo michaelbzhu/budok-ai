@@ -1,6 +1,6 @@
 # Debug LLM Battles — Improving Agent Play Quality
 
-Status: **Draft**
+Status: **In Progress** (code changes complete, live match verification pending)
 Created: 2026-03-16
 Context: After fixing character name resolution, move catalog injection, and prediction stripping, LLM agents now choose character-specific moves and use basic yomi reasoning. However, matches stall at 100/100 HP because both agents converge on a deterministic 2-action oscillation (LightningSliceNeutral ↔ Grab) that results in simultaneous trades with no net damage.
 
