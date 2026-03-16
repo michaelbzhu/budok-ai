@@ -199,18 +199,27 @@ The current prompt is ~23K chars. About half is structural JSON that doesn't hel
 
 ### Implementation
 
-- [ ] Compress the output contract: replace the full JSON schema with a concise natural-language description + one example. The schema is the same every turn — no need to repeat 1200 tokens of it.
-- [ ] Compress legal actions: omit `payload_spec` for actions where all payload fields have `min == max` (zero-range XY plots like Roll's Direction). Show payload specs inline as one-liners for simple cases.
-- [ ] Group legal actions by category in the prompt output (Offense, Defense, Grab, Movement, Utility, Special, Super) instead of a flat list
-- [ ] Omit `supports` flags that are all false — only show the flags that are true (e.g., `"supports": {"di": true, "feint": true}` instead of listing all four)
-- [ ] Strip null fields from turn context (`game_version: null`, `mod_version: null`, etc.)
+- [x] Compress the output contract: replace the full JSON schema with a concise natural-language description + one example. The schema is the same every turn — no need to repeat 1200 tokens of it.
+- [x] Compress legal actions: omit `payload_spec` for actions where all payload fields have `min == max` (zero-range XY plots like Roll's Direction). Show payload specs inline as one-liners for simple cases.
+- [x] Group legal actions by category in the prompt output (Offense, Defense, Grab, Movement, Utility, Special, Super) instead of a flat list
+- [x] Omit `supports` flags that are all false — only show the flags that are true (e.g., `"supports": {"di": true, "feint": true}` instead of listing all four)
+- [x] Strip null fields from turn context (`game_version: null`, `mod_version: null`, etc.)
 - [ ] Target: reduce prompt to <15K chars without losing tactical signal
 
 ### Acceptance criteria
 
 - [ ] Prompt length is <15K chars for a typical turn with 10 history entries and 25+ legal actions
 - [ ] No regression in parse success rate (fallback rate stays <15%)
-- [ ] Legal actions are grouped by category in the prompt
+- [x] Legal actions are grouped by category in the prompt
+
+### Execution notes for future agents
+
+- `_compact_output_contract()` replaces the full JSON schema (~1200 tokens) with a 4-line natural language description + 2 examples.
+- `_turn_context()` now only includes non-null fields — removed game_version, mod_version, schema_version, ruleset_id, prompt_version, state_hash, legal_actions_hash from prompt.
+- `_compact_observation()` trims history to last 5 entries with compact fields (omits was_fallback, p1_pos/p2_pos unless helpful).
+- `_grouped_legal_actions_section()` groups actions by category with ordered headings.
+- `_is_zero_range_payload()` detects payload_specs where all numeric fields have min==max (no real choice) and omits them.
+- `decision_output_json_schema()` is preserved for validation/reference use but no longer rendered in prompts.
 
 ---
 

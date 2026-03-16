@@ -70,20 +70,12 @@ def render_prompt(
     cheat_sheet = _tactical_cheat_sheet(request)
     sections = [
         template_path.read_text(encoding="utf-8").strip(),
-        "## Output Contract\n"
-        "Return exactly one JSON object. Never include Markdown fences.\n"
-        "Choose `action` from the legal actions listed below. Only include `data` when the chosen "
-        "action requires payload fields. Only include `extra` fields that the chosen action "
-        "supports; otherwise omit them and the daemon will apply safe defaults.\n"
-        "When a legal action includes `payload_spec` or `prediction_spec`, match those structured "
-        "contracts exactly, including required fields and numeric bounds.\n"
-        "If multiple actions look equivalent, prefer the lower-commitment option.\n"
-        f"Target schema:\n```json\n{_json_dump(decision_output_json_schema())}\n```",
+        _compact_output_contract(),
         f"## Turn Context\n```json\n{_json_dump(_turn_context(request, policy_id=policy_id))}\n```",
         _situation_summary(request),
         *([cheat_sheet] if cheat_sheet else []),
-        f"## Observation\n```json\n{_json_dump(request.observation.to_dict())}\n```",
-        f"## Legal Actions\n```json\n{_json_dump(_legal_actions_payload(request))}\n```",
+        f"## Observation\n```json\n{_json_dump(_compact_observation(request))}\n```",
+        _grouped_legal_actions_section(request),
     ]
 
     return RenderedPrompt(
@@ -94,7 +86,22 @@ def render_prompt(
     )
 
 
+def _compact_output_contract() -> str:
+    """Concise output contract replacing the full JSON schema to save ~1200 tokens."""
+    return (
+        "## Output Contract\n"
+        "Return exactly one JSON object (no Markdown fences). Required field: `action` (string "
+        "from the legal actions list). Optional fields: `data` (object, only when action has "
+        "payload_spec), `extra` (object with `di: {x,y}` integers -100..100, `feint`: bool, "
+        "`reverse`: bool — only include if the action supports them), `reasoning` (string), "
+        "`notes` (string).\n"
+        'Example: `{"action": "HSlash2", "reasoning": "opponent is blocking, switching to grab next"}`\n'
+        'Example with payload: `{"action": "ParryHigh", "data": {"Melee Parry Timing": 10}}`'
+    )
+
+
 def decision_output_json_schema() -> JsonObject:
+    """Full schema kept for validation/reference use, no longer rendered in prompts."""
     return {
         "type": "object",
         "additionalProperties": False,
@@ -164,22 +171,19 @@ def _variant_for_prompt_version(prompt_version: str) -> PromptTemplateVariant:
 
 
 def _turn_context(request: DecisionRequest, *, policy_id: str | None) -> JsonObject:
-    return {
+    ctx: JsonObject = {
         "match_id": request.match_id,
         "turn_id": request.turn_id,
         "player_id": request.player_id,
         "deadline_ms": request.deadline_ms,
         "decision_type": request.decision_type.value,
-        "trace_seed": request.trace_seed,
-        "policy_id": policy_id,
-        "state_hash": request.state_hash,
-        "legal_actions_hash": request.legal_actions_hash,
-        "game_version": request.game_version,
-        "mod_version": request.mod_version,
-        "schema_version": request.schema_version,
-        "ruleset_id": request.ruleset_id,
-        "prompt_version": request.prompt_version,
     }
+    # Only include non-null optional fields to reduce prompt size
+    if request.trace_seed is not None:
+        ctx["trace_seed"] = request.trace_seed
+    if policy_id is not None:
+        ctx["policy_id"] = policy_id
+    return ctx
 
 
 def _situation_summary(request: DecisionRequest) -> str:
@@ -311,6 +315,64 @@ def _tactical_cheat_sheet(request: DecisionRequest) -> str:
     return "\n".join(lines)
 
 
+def _compact_observation(request: DecisionRequest) -> JsonObject:
+    """Produce a compact observation dict that strips redundant/verbose fields."""
+    obs = request.observation.to_dict()
+    # Strip history from observation — it's already summarized in Situation/Cheat Sheet
+    # and the full entries are verbose. Keep last 5 entries with compact format.
+    if "history" in obs and isinstance(obs["history"], list):
+        compact_history = []
+        for entry in obs["history"][-5:]:
+            if not isinstance(entry, dict):
+                continue
+            compact: JsonObject = {}
+            if "game_tick" in entry:
+                compact["tick"] = entry["game_tick"]
+            elif "turn_id" in entry:
+                compact["turn_id"] = entry["turn_id"]
+            for key in (
+                "p1_action",
+                "p2_action",
+                "p1_hp",
+                "p2_hp",
+                "p1_hp_delta",
+                "p2_hp_delta",
+                "p1_outcome",
+                "p2_outcome",
+            ):
+                if key in entry and entry[key] is not None:
+                    compact[key] = entry[key]
+            compact_history.append(compact)
+        obs["history"] = compact_history
+    return obs
+
+
+def _grouped_legal_actions_section(request: DecisionRequest) -> str:
+    """Render legal actions grouped by category instead of a flat list."""
+    actions = _legal_actions_payload(request)
+    groups: dict[str, list[JsonObject]] = {}
+    for action in actions:
+        cat = str(action.get("category", "other"))
+        if cat not in groups:
+            groups[cat] = []
+        groups[cat].append(action)
+
+    # Preferred category order
+    order = ["offense", "defense", "grab", "movement", "special", "super", "utility", "other"]
+    lines = ["## Legal Actions"]
+    for cat in order:
+        if cat not in groups:
+            continue
+        lines.append(f"\n### {cat.title()}")
+        lines.append(f"```json\n{_json_dump(groups[cat])}\n```")
+        del groups[cat]
+    # Any remaining categories
+    for cat, acts in groups.items():
+        lines.append(f"\n### {cat.title()}")
+        lines.append(f"```json\n{_json_dump(acts)}\n```")
+    return "\n".join(lines)
+
+
 def _legal_actions_payload(request: DecisionRequest) -> list[JsonObject]:
     # Resolve character name from the active player's fighter observation
     character_name = _resolve_active_character(request)
@@ -357,13 +419,42 @@ def _legal_actions_payload(request: DecisionRequest) -> list[JsonObject]:
         if weakness:
             entry["weakness"] = weakness
 
-        if action.payload_spec:
+        # Only include non-trivial payload_specs (omit zero-range XY plots)
+        if action.payload_spec and not _is_zero_range_payload(action.payload_spec):
             entry["payload_spec"] = action.payload_spec
         if action.prediction_spec:
             entry["prediction_spec"] = action.prediction_spec
-        entry["supports"] = action.supports.to_dict()
+        # Only show supports flags that are true to save tokens
+        true_supports = {k: v for k, v in action.supports.to_dict().items() if v}
+        if true_supports:
+            entry["supports"] = true_supports
         result.append(entry)
     return result
+
+
+def _is_zero_range_payload(payload_spec: JsonObject) -> bool:
+    """Check if all fields in a payload_spec have min == max (zero choice range)."""
+    props = payload_spec.get("properties")
+    if not isinstance(props, dict) or not props:
+        return False
+    for field in props.values():
+        if not isinstance(field, dict):
+            continue
+        field_min = field.get("minimum")
+        field_max = field.get("maximum")
+        if field_min is not None and field_max is not None and field_min != field_max:
+            return False  # Has a real range
+        # Check nested xy properties
+        nested_props = field.get("properties")
+        if isinstance(nested_props, dict):
+            for nested in nested_props.values():
+                if not isinstance(nested, dict):
+                    continue
+                n_min = nested.get("minimum")
+                n_max = nested.get("maximum")
+                if n_min is not None and n_max is not None and n_min != n_max:
+                    return False
+    return True
 
 
 def _resolve_active_character(request: DecisionRequest) -> str | None:
