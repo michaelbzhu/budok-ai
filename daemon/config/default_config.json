@@ -44,5 +44,8 @@
     "fixed_stage": "training_room"
   },
   "trace_seed": 0,
-  "stage_id": "training_room"
+  "stage_id": "training_room",
+  "replay_capture": {
+    "enabled": true
+  }
 }
