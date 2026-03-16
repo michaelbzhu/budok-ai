@@ -67,6 +67,7 @@ def render_prompt(
         )
 
     variant = _variant_for_prompt_version(prompt_version)
+    cheat_sheet = _tactical_cheat_sheet(request)
     sections = [
         template_path.read_text(encoding="utf-8").strip(),
         "## Output Contract\n"
@@ -80,6 +81,7 @@ def render_prompt(
         f"Target schema:\n```json\n{_json_dump(decision_output_json_schema())}\n```",
         f"## Turn Context\n```json\n{_json_dump(_turn_context(request, policy_id=policy_id))}\n```",
         _situation_summary(request),
+        *([cheat_sheet] if cheat_sheet else []),
         f"## Observation\n```json\n{_json_dump(request.observation.to_dict())}\n```",
         f"## Legal Actions\n```json\n{_json_dump(_legal_actions_payload(request))}\n```",
     ]
@@ -225,6 +227,87 @@ def _situation_summary(request: DecisionRequest) -> str:
     ]
     if repetition_warning:
         lines.append(repetition_warning)
+    return "\n".join(lines)
+
+
+def _tactical_cheat_sheet(request: DecisionRequest) -> str:
+    """Generate a short tactical suggestion based on opponent state and recent history."""
+    obs = request.observation
+    fighters = obs.fighters
+    if len(fighters) < 2:
+        return ""
+
+    opp = next((f for f in fighters if f.id != request.player_id), fighters[1])
+
+    lines = ["## Tactical Cheat Sheet"]
+
+    # Suggestion based on opponent's current state
+    opp_state = opp.current_state.lower()
+    if any(kw in opp_state for kw in ("attack", "slash", "kick", "punch", "combo", "shoot")):
+        lines.append(
+            "- Opponent is ATTACKING: **Block (ParryHigh), SpotDodge, or Roll to counter**"
+        )
+    elif any(kw in opp_state for kw in ("block", "parry", "guard")):
+        lines.append(
+            "- Opponent is BLOCKING: **Grab or command grab to throw through their guard**"
+        )
+    elif any(kw in opp_state for kw in ("grab", "throw", "lasso")):
+        lines.append("- Opponent is GRABBING: **Any attack beats a grab — use a fast attack**")
+    elif any(kw in opp_state for kw in ("whiff", "recovery", "landing", "endlag")):
+        lines.append(
+            "- Opponent is in RECOVERY: **Punish with a high-damage move (Stinger, VSlash, 3Combo)**"
+        )
+    else:
+        lines.append("- Opponent is NEUTRAL: **Mix unpredictably between attack, grab, and block**")
+
+    # Suggestion based on opponent's recent history pattern
+    opp_key = "p1_action" if request.player_id == "p2" else "p2_action"
+    recent_opp_actions: list[str] = []
+    for entry in obs.history[-5:]:
+        d = entry.to_dict()
+        action = d.get(opp_key)
+        if action:
+            recent_opp_actions.append(action)
+
+    if len(recent_opp_actions) >= 3:
+        last_3 = recent_opp_actions[-3:]
+        if len(set(last_3)) == 1:
+            lines.append(
+                f"- Opponent used **{last_3[0]}** 3x in a row — they are predictable. "
+                f"Choose the counter (block beats attacks, attack beats grabs, grab beats blocks)."
+            )
+        elif len(recent_opp_actions) >= 4:
+            # Check for alternating pattern
+            last_4 = recent_opp_actions[-4:]
+            if last_4[0] == last_4[2] and last_4[1] == last_4[3] and last_4[0] != last_4[1]:
+                lines.append(
+                    f"- Opponent alternates **{last_4[0]}** / **{last_4[1]}** — "
+                    f"break the pattern with a DODGE, ROLL, or unexpected option."
+                )
+
+    # Outcome-based suggestion from recent history
+    my_key = f"{request.player_id}_outcome"
+    recent_outcomes: list[str] = []
+    for entry in obs.history[-3:]:
+        d = entry.to_dict()
+        outcome = d.get(my_key)
+        if outcome:
+            recent_outcomes.append(outcome)
+
+    if recent_outcomes:
+        hit_count = sum(1 for o in recent_outcomes if o == "hit" and o != "")
+        blocked_count = sum(1 for o in recent_outcomes if o in ("blocked", "clashed"))
+        if hit_count >= 2:
+            lines.append(
+                "- Your attacks are LANDING — keep up the pressure but stay unpredictable."
+            )
+        elif blocked_count >= 2:
+            lines.append(
+                "- Your attacks are being BLOCKED — switch to grabs or try a different timing."
+            )
+
+    if len(lines) <= 1:
+        return ""
     return "\n".join(lines)
 
 

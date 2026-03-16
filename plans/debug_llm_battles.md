@@ -130,24 +130,30 @@ Instead of making the LLM infer yomi from abstract rules, give it a concrete act
 
 ### Implementation
 
-- [ ] Add a `_tactical_cheat_sheet()` function in `prompt.py` that generates a short markdown section
-- [ ] Based on opponent's `current_state`, suggest:
+- [x] Add a `_tactical_cheat_sheet()` function in `prompt.py` that generates a short markdown section
+- [x] Based on opponent's `current_state`, suggest:
   - If opponent is attacking → "Block (ParryHigh), SpotDodge, or Roll to counter"
   - If opponent is blocking/parrying → "Grab or Lasso to throw through their guard"
   - If opponent is grabbing → "Any attack beats a grab — use a fast attack"
   - If opponent is in recovery/whiff → "Punish with a high-damage move: Stinger, VSlash, 3Combo"
   - If opponent is neutral/starting → "Mix unpredictably between attack, grab, and block"
-- [ ] Based on opponent's recent history pattern (last 3 actions), suggest what to exploit:
+- [x] Based on opponent's recent history pattern (last 3 actions), suggest what to exploit:
   - "Opponent has attacked 3 times in a row → they may continue attacking, BLOCK to punish"
   - "Opponent alternates attack/grab → break the pattern with a DODGE or WAIT"
-- [ ] Keep the section short (5-8 lines max) to stay within token budget
-- [ ] Insert between Situation and Observation in the prompt
+- [x] Keep the section short (5-8 lines max) to stay within token budget
+- [x] Insert between Situation and Observation in the prompt
 
 ### Acceptance criteria
 
-- [ ] Cheat sheet appears in rendered prompts
-- [ ] Suggestions change based on opponent state and history
+- [x] Cheat sheet appears in rendered prompts
+- [x] Suggestions change based on opponent state and history
 - [ ] LLM decisions reference the cheat sheet suggestions in reasoning (spot-check 5+ turns)
+
+### Execution notes for future agents
+
+- Cheat sheet is inserted between Situation and Observation using `*([cheat_sheet] if cheat_sheet else [])` spread.
+- Three suggestion sources: opponent current state keywords, opponent recent history patterns (repetition + alternation), and outcome-based feedback (your attacks landing/blocked).
+- Returns empty string (omitted from prompt) if no actionable suggestions — avoids wasting tokens on trivial neutral states.
 
 ---
 
