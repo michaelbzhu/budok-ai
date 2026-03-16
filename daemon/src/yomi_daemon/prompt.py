@@ -433,27 +433,45 @@ def _legal_actions_payload(request: DecisionRequest) -> list[JsonObject]:
 
 
 def _is_zero_range_payload(payload_spec: JsonObject) -> bool:
-    """Check if all fields in a payload_spec have min == max (zero choice range)."""
+    """Check if all fields in a payload_spec have zero-choice ranges and can be auto-defaulted.
+
+    Returns True only if every field is either:
+    - A numeric field with min == max (no real choice)
+    - An XY field where both axes have min == max
+    - A boolean field (defaults to false)
+
+    When True, the prompt omits the payload_spec and the response parser auto-fills defaults.
+    """
     props = payload_spec.get("properties")
     if not isinstance(props, dict) or not props:
         return False
     for field in props.values():
         if not isinstance(field, dict):
             continue
+        field_type = field.get("type")
+        # Boolean fields always default to false — zero-choice
+        if field_type == "boolean":
+            continue
         field_min = field.get("minimum")
         field_max = field.get("maximum")
-        if field_min is not None and field_max is not None and field_min != field_max:
-            return False  # Has a real range
+        if field_min is not None and field_max is not None and field_min == field_max:
+            continue  # Zero range numeric
         # Check nested xy properties
         nested_props = field.get("properties")
         if isinstance(nested_props, dict):
+            all_zero = True
             for nested in nested_props.values():
                 if not isinstance(nested, dict):
                     continue
                 n_min = nested.get("minimum")
                 n_max = nested.get("maximum")
-                if n_min is not None and n_max is not None and n_min != n_max:
-                    return False
+                if n_min is None or n_max is None or n_min != n_max:
+                    all_zero = False
+                    break
+            if all_zero:
+                continue
+        # Has a real choice — not zero-range
+        return False
     return True
 
 

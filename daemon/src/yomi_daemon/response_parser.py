@@ -236,6 +236,17 @@ def _normalize_decision_mapping(
     normalized = _coerce_json_object(candidate)
     normalized.setdefault("match_id", request.match_id)
     normalized.setdefault("turn_id", request.turn_id)
+
+    # Auto-fill default payload data when the LLM omits it and the action has trivial defaults
+    if normalized.get("data") is None:
+        action_name = normalized.get("action")
+        if action_name:
+            for la in request.legal_actions:
+                if la.action == action_name and la.payload_spec:
+                    auto_data = _auto_fill_payload_defaults(la.payload_spec)
+                    if auto_data is not None:
+                        normalized["data"] = auto_data
+                    break
     normalized.setdefault("data", None)
 
     extra_raw = normalized.get("extra")
@@ -267,6 +278,66 @@ def _normalize_decision_mapping(
 
     normalized["extra"] = extra_mapping
     return normalized
+
+
+def _auto_fill_payload_defaults(payload_spec: Mapping[str, object]) -> JsonObject | None:
+    """Auto-fill payload data from default values in the spec.
+
+    Returns a dict of default values if ALL required fields have defaults,
+    or None if any required field cannot be auto-filled.
+    """
+    props_raw = payload_spec.get("properties")
+    if not isinstance(props_raw, Mapping):
+        return None
+    required_raw = payload_spec.get("required", [])
+    required = set(required_raw) if isinstance(required_raw, list) else set()
+
+    result: JsonObject = {}
+    for key, field_raw in props_raw.items():
+        if not isinstance(field_raw, Mapping):
+            continue
+        field = cast(Mapping[str, object], field_raw)
+        field_type = field.get("type")
+
+        # Boolean: default to false
+        if field_type == "boolean":
+            result[str(key)] = field.get("default", False)
+            continue
+
+        # Object with nested properties (e.g., XY plot): auto-fill from nested defaults
+        nested_props = field.get("properties")
+        if field_type == "object" and isinstance(nested_props, Mapping):
+            nested_result: JsonObject = {}
+            for nk, nv_raw in nested_props.items():
+                if not isinstance(nv_raw, Mapping):
+                    continue
+                nv = cast(Mapping[str, object], nv_raw)
+                default = nv.get("default")
+                if default is not None:
+                    nested_result[str(nk)] = default
+                elif str(nk) in (field.get("required", []) or []):
+                    return None  # Can't auto-fill a required nested field
+            result[str(key)] = nested_result
+            continue
+
+        # Numeric with default
+        default = field.get("default")
+        if default is not None:
+            result[str(key)] = default
+            continue
+
+        # Numeric with min == max
+        field_min = field.get("minimum")
+        field_max = field.get("maximum")
+        if field_min is not None and field_max is not None and field_min == field_max:
+            result[str(key)] = field_min
+            continue
+
+        # Can't auto-fill this field
+        if str(key) in required:
+            return None
+
+    return result
 
 
 def _extract_json_object(text: str) -> Mapping[str, object] | None:
