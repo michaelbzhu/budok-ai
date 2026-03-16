@@ -167,19 +167,25 @@ The LLM converges on deterministic patterns because it reasons to a single "best
 
 ### Implementation
 
-- [ ] Add a "Mixed strategy" section to strategic_v1.md explaining that predictability is the biggest weakness:
+- [x] Add a "Mixed strategy" section to strategic_v1.md explaining that predictability is the biggest weakness:
   - "Your opponent can see your history. If you always do the same thing, they will counter it."
   - "A good baseline distribution: 35% attack (vary which attack each turn), 25% grab, 25% block/defense, 15% movement/utility."
   - "Adjust weights based on what's working: if your attacks keep landing, increase attack frequency. If you keep getting grabbed, use more attacks (attacks beat grabs)."
-- [ ] Add explicit instruction: "NEVER use the same action more than 2 turns in a row. When choosing between similar options (e.g., multiple attack moves), pick a DIFFERENT one each time."
-- [ ] Add instruction: "Distribute your attacks across your full moveset. You have N attack moves — use them all, not just the one with the best stats."
-- [ ] Remove or weaken the "prefer attacks or grabs over movement" guidance that biases away from defense
+- [x] Add explicit instruction: "NEVER use the same action more than 2 turns in a row. When choosing between similar options (e.g., multiple attack moves), pick a DIFFERENT one each time."
+- [x] Add instruction: "Distribute your attacks across your full moveset. You have N attack moves — use them all, not just the one with the best stats."
+- [x] Remove or weaken the "prefer attacks or grabs over movement" guidance that biases away from defense
 
 ### Acceptance criteria
 
 - [ ] In a 50+ turn match, no single action exceeds 35% of total decisions
 - [ ] At least 5 distinct action types used per player
 - [ ] Defense actions (ParryHigh, SpotDodge, Roll) are chosen proactively, not just from fallbacks
+
+### Execution notes for future agents
+
+- "When unsure, prefer attacks or grabs over movement" replaced with guidance to use variety and the beats/weakness fields.
+- New "Mixed strategy" section placed early in the prompt (after core yomi layer) so the LLM reads it before decision factors.
+- Defense is now explicitly called out as a proactive choice, not a fallback.
 
 ---
 
