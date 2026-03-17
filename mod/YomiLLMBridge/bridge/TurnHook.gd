@@ -633,15 +633,19 @@ func _begin_replay_monitoring() -> void:
 	# Set normal playback speed for recording quality
 	Global.playback_speed_mod = 1
 
-	# Start recording IMMEDIATELY — before the replay game is created.
-	# The game auto-starts replay playback ~120 ticks (~2s) after match end.
-	# If we wait to detect the replay game, the short replay may already be
-	# finished by the time ffmpeg starts. Recording the match-end screen
-	# briefly before the replay starts is acceptable.
+	# Pause the game to prevent the replay from starting before ffmpeg is ready.
+	# game.gd _physics_process: if not game_started: return
+	# This stops the 120-tick countdown to start_playback().
+	# We'll resume it after sending ReplayStarted and giving ffmpeg time to start.
+	if _game != null and is_instance_valid(_game):
+		_game.game_started = false
+		print("YomiLLMBridge paused game to wait for ffmpeg startup")
+
+	# Send ReplayStarted so the daemon begins launching ffmpeg.
 	var display = OS.get_environment("DISPLAY")
 	if display == "":
 		display = ":99"
-	print("YomiLLMBridge starting replay recording early on display %s" % display)
+	print("YomiLLMBridge starting replay recording on display %s" % display)
 	_telemetry.emit_replay_started(display)
 
 
@@ -654,10 +658,15 @@ func _monitor_replay_lifecycle() -> void:
 			_telemetry.emit_replay_ended()
 			return
 
+		# After 5 seconds, resume the game so the replay starts.
+		# This gives ffmpeg enough time to start capturing the display.
+		var elapsed = OS.get_ticks_msec() - _replay_wait_started_ms
+		if elapsed > 5000 and _game != null and is_instance_valid(_game):
+			if not _game.game_started:
+				_game.game_started = true
+				print("YomiLLMBridge resumed game after %dms ffmpeg startup delay" % elapsed)
+
 		# Detect the replay game instance for end-of-replay monitoring.
-		# Recording already started in _begin_replay_monitoring (before the
-		# replay game was created), so we just need to find the game instance
-		# to know when it finishes.
 		if not _has_global_game():
 			return
 		if Global.current_game == null:

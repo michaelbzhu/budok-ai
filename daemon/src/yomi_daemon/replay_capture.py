@@ -47,7 +47,9 @@ class ReplayCaptureSession:
     def is_recording(self) -> bool:
         return self._process is not None and self._process.returncode is None
 
-    async def start_recording(self, display: str | None = None) -> bool:
+    async def start_recording(
+        self, display: str | None = None, max_duration_seconds: int = 120
+    ) -> bool:
         """Start ffmpeg x11grab recording on the VM's virtual display."""
 
         if self._process is not None:
@@ -66,6 +68,7 @@ class ReplayCaptureSession:
             f"-video_size {cfg.resolution} "
             f"-framerate {cfg.framerate} "
             f"-i {resolved_display} "
+            f"-t {max_duration_seconds} "
             f"-c:v {cfg.video_codec} -preset {cfg.preset} -pix_fmt yuv420p "
             f"{self._vm_video_path} "
             f"</dev/null 2>/tmp/yomi_ffmpeg_{self._match_id}.log"
@@ -102,23 +105,13 @@ class ReplayCaptureSession:
             self._logger.warning("No recording in progress for match %s", self._match_id)
             return None
 
-        # Stop ffmpeg cleanly inside the VM. The orb wrapper doesn't reliably
-        # forward signals, so we send SIGINT directly via a separate orb run,
-        # then give ffmpeg 3 seconds to write the MP4 trailer before force-killing.
-        video_marker = f"yomi_replay_{self._match_id}"
-        await self._vm_exec(
-            f"PID=$(pgrep -f '{video_marker}'); "
-            f'if [ -n "$PID" ]; then '
-            f"kill -INT $PID; sleep 3; "
-            f"kill -0 $PID 2>/dev/null && kill -9 $PID; "
-            f"fi; true"
-        )
-
-        # Wait for the orb wrapper process to exit
+        # ffmpeg was started with -t (fixed duration) so it will exit cleanly
+        # on its own. We just wait for it, or kill if it takes too long.
         try:
-            await asyncio.wait_for(self._process.wait(), timeout=10.0)
+            await asyncio.wait_for(self._process.wait(), timeout=180.0)
+            self._logger.info("ffmpeg exited cleanly for match %s", self._match_id)
         except TimeoutError:
-            self._logger.warning("orb wrapper did not exit, killing")
+            self._logger.warning("ffmpeg did not exit within timeout, killing")
             try:
                 self._process.kill()
             except (ProcessLookupError, OSError):

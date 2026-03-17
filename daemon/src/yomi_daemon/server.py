@@ -554,13 +554,18 @@ class DaemonServer:
                             session.session_id,
                             display,
                         )
-                        await capture.start_recording(display=display)
+                        # Use fixed-duration recording. The replay plays the full
+                        # match timer at 60fps plus post-game animations. We use
+                        # 60 seconds as a safe max — ffmpeg exits cleanly with -t.
+                        await capture.start_recording(display=display, max_duration_seconds=60)
 
                     elif event.event is EventName.REPLAY_ENDED:
                         self.logger.info(
                             "Session %s: replay ended, stopping recording",
                             session.session_id,
                         )
+                        # ffmpeg was started with -t and will stop on its own.
+                        # Wait for it to finish, then pull the video.
                         video_path = await capture.stop_recording()
                         if video_path:
                             self.logger.info("Replay video saved to %s", video_path)
