@@ -554,10 +554,23 @@ class DaemonServer:
                             session.session_id,
                             display,
                         )
-                        # Use fixed-duration recording. The replay plays the full
-                        # match timer at 60fps plus post-game animations. We use
-                        # 60 seconds as a safe max — ffmpeg exits cleanly with -t.
-                        await capture.start_recording(display=display, max_duration_seconds=60)
+                        # Calculate recording duration from match HP.
+                        # Timer ticks = starting_hp * 3 (our scaling).
+                        # Replay runs at half speed (30 ticks/s, playback_speed_mod=2).
+                        # Add 15s padding for match-end screen + post-KO animation.
+                        starting_hp = 1500  # game default
+                        if (
+                            self._runtime_config
+                            and self._runtime_config.match_options
+                            and self._runtime_config.match_options.starting_hp
+                        ):
+                            starting_hp = self._runtime_config.match_options.starting_hp
+                        timer_ticks = starting_hp * 3
+                        replay_seconds = timer_ticks / 30  # half-speed = 30 ticks/s
+                        record_duration = int(replay_seconds + 15)
+                        await capture.start_recording(
+                            display=display, max_duration_seconds=record_duration
+                        )
 
                     elif event.event is EventName.REPLAY_ENDED:
                         self.logger.info(
