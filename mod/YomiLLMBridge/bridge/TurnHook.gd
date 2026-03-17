@@ -671,11 +671,27 @@ func _monitor_replay_lifecycle() -> void:
 			print("YomiLLMBridge replay game freed, recording complete")
 			_replay_recording = false
 			_telemetry.emit_replay_ended()
+			_prevent_replay_loop()
 			return
 		if _replay_game.game_finished:
 			print("YomiLLMBridge replay playback finished")
 			_replay_recording = false
 			_telemetry.emit_replay_ended()
+			_prevent_replay_loop()
+
+
+func _prevent_replay_loop() -> void:
+	"""Break the game's infinite replay loop after we've captured one replay.
+
+	game.gd _physics_process auto-calls start_playback() 120 ticks after
+	game_finished, which creates a new replay game via main._on_playback_requested().
+	Setting play_full=false prevents the loop from continuing."""
+	if "play_full" in ReplayManager:
+		ReplayManager.play_full = false
+		print("YomiLLMBridge set ReplayManager.play_full=false to prevent replay loop")
+	# Also try to stop the replay game from triggering another cycle
+	if _replay_game != null and is_instance_valid(_replay_game):
+		_replay_game.game_started = false
 
 
 func _find_replay_path():

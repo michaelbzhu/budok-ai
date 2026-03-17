@@ -110,7 +110,7 @@ class ReplayCaptureSession:
             pass
 
         try:
-            await asyncio.wait_for(self._process.wait(), timeout=15.0)
+            await asyncio.wait_for(self._process.wait(), timeout=3.0)
         except TimeoutError:
             self._logger.warning("ffmpeg did not exit after SIGINT, killing")
             try:
