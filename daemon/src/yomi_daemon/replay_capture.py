@@ -102,19 +102,23 @@ class ReplayCaptureSession:
             self._logger.warning("No recording in progress for match %s", self._match_id)
             return None
 
-        # Send SIGINT directly to ffmpeg inside the VM for a clean shutdown
-        # (writes proper MP4 file trailer). The orb wrapper process doesn't
-        # reliably forward signals to the child process inside the VM.
+        # Stop ffmpeg cleanly inside the VM. The orb wrapper doesn't reliably
+        # forward signals, so we send SIGINT directly via a separate orb run,
+        # then give ffmpeg 3 seconds to write the MP4 trailer before force-killing.
         video_marker = f"yomi_replay_{self._match_id}"
-        await self._vm_exec(f"kill -INT $(pgrep -f '{video_marker}') 2>/dev/null; true")
+        await self._vm_exec(
+            f"PID=$(pgrep -f '{video_marker}'); "
+            f'if [ -n "$PID" ]; then '
+            f"kill -INT $PID; sleep 3; "
+            f"kill -0 $PID 2>/dev/null && kill -9 $PID; "
+            f"fi; true"
+        )
 
-        # Wait for the orb wrapper process to exit (ffmpeg stopping causes it to end)
+        # Wait for the orb wrapper process to exit
         try:
             await asyncio.wait_for(self._process.wait(), timeout=10.0)
         except TimeoutError:
-            self._logger.warning("ffmpeg did not exit after in-VM SIGINT, killing")
-            # Force-kill ffmpeg inside the VM
-            await self._vm_exec(f"kill -9 $(pgrep -f '{video_marker}') 2>/dev/null; true")
+            self._logger.warning("orb wrapper did not exit, killing")
             try:
                 self._process.kill()
             except (ProcessLookupError, OSError):

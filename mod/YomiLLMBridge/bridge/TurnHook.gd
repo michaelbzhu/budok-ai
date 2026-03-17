@@ -38,6 +38,7 @@ var _replay_saved = false
 var _awaiting_replay = false
 var _replay_recording = false
 var _replay_wait_started_ms = 0
+var _replay_end_grace_ms = 0
 var _original_game_id = 0
 var _replay_game = null
 
@@ -628,9 +629,20 @@ func _begin_replay_monitoring() -> void:
 	_replay_recording = false
 	_replay_game = null
 	_replay_wait_started_ms = OS.get_ticks_msec()
+	_replay_end_grace_ms = 0
 	# Set normal playback speed for recording quality
 	Global.playback_speed_mod = 1
-	print("YomiLLMBridge waiting for auto-replay playback...")
+
+	# Start recording IMMEDIATELY — before the replay game is created.
+	# The game auto-starts replay playback ~120 ticks (~2s) after match end.
+	# If we wait to detect the replay game, the short replay may already be
+	# finished by the time ffmpeg starts. Recording the match-end screen
+	# briefly before the replay starts is acceptable.
+	var display = OS.get_environment("DISPLAY")
+	if display == "":
+		display = ":99"
+	print("YomiLLMBridge starting replay recording early on display %s" % display)
+	_telemetry.emit_replay_started(display)
 
 
 func _monitor_replay_lifecycle() -> void:
@@ -639,31 +651,25 @@ func _monitor_replay_lifecycle() -> void:
 		if OS.get_ticks_msec() - _replay_wait_started_ms > 60000:
 			print("YomiLLMBridge replay wait timed out")
 			_awaiting_replay = false
+			_telemetry.emit_replay_ended()
 			return
 
-		# Check if a new game started in replay mode
+		# Detect the replay game instance for end-of-replay monitoring.
+		# Recording already started in _begin_replay_monitoring (before the
+		# replay game was created), so we just need to find the game instance
+		# to know when it finishes.
 		if not _has_global_game():
 			return
 		if Global.current_game == null:
 			return
 		if Global.current_game.get_instance_id() == _original_game_id:
 			return
-		if not ("playback" in ReplayManager):
-			return
-		if not ReplayManager.playback:
-			return
-		if not Global.current_game.game_started:
-			return
 
-		# Replay playback has started
+		# Found the replay game instance
 		_awaiting_replay = false
 		_replay_recording = true
 		_replay_game = Global.current_game
-		var display = OS.get_environment("DISPLAY")
-		if display == "":
-			display = ":99"
-		print("YomiLLMBridge replay playback detected on display %s" % display)
-		_telemetry.emit_replay_started(display)
+		print("YomiLLMBridge replay game instance detected")
 
 	elif _replay_recording:
 		# Monitor for replay end
@@ -674,10 +680,16 @@ func _monitor_replay_lifecycle() -> void:
 			_prevent_replay_loop()
 			return
 		if _replay_game.game_finished:
-			print("YomiLLMBridge replay playback finished")
-			_replay_recording = false
-			_telemetry.emit_replay_ended()
-			_prevent_replay_loop()
+			# Add a grace period after game_finished to capture the post-KO
+			# animation (slow-mo, victory text, etc.) before stopping recording.
+			if _replay_end_grace_ms == 0:
+				_replay_end_grace_ms = OS.get_ticks_msec()
+				print("YomiLLMBridge replay game finished, waiting 5s for post-KO animation...")
+				_prevent_replay_loop()
+			elif OS.get_ticks_msec() - _replay_end_grace_ms > 5000:
+				print("YomiLLMBridge replay recording complete (after grace period)")
+				_replay_recording = false
+				_telemetry.emit_replay_ended()
 
 
 func _prevent_replay_loop() -> void:
