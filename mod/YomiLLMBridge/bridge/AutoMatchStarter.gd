@@ -18,12 +18,13 @@ func start_match(hello_ack: Dictionary) -> void:
 	_started = true
 
 	var config = _extract_config(hello_ack)
+	var policy_mapping = _extract_policy_mapping(hello_ack)
 	var characters = _resolve_characters(config)
 	if characters.empty():
 		printerr("AutoMatchStarter: failed to resolve characters from config")
 		return
 
-	var match_data = _build_match_data(characters, config)
+	var match_data = _build_match_data(characters, config, policy_mapping)
 
 	# Emit match_ready on CharacterSelect, which main.gd listens to.
 	# This triggers main._on_match_ready() -> setup_game() -> game.start_game()
@@ -60,6 +61,16 @@ func start_match(hello_ack: Dictionary) -> void:
 		return
 
 	printerr("AutoMatchStarter: could not find CharacterSelect or Main node to start match")
+
+
+func _extract_policy_mapping(hello_ack: Dictionary) -> Dictionary:
+	var payload = hello_ack.get("payload", {})
+	if not (payload is Dictionary):
+		return {}
+	var mapping = payload.get("policy_mapping", {})
+	if not (mapping is Dictionary):
+		return {}
+	return mapping
 
 
 func _extract_config(hello_ack: Dictionary) -> Dictionary:
@@ -164,18 +175,29 @@ func _get_available_characters() -> Array:
 	return BUILTIN_CHARACTERS.duplicate()
 
 
-func _build_match_data(characters: Dictionary, config: Dictionary) -> Dictionary:
+func _build_match_data(characters: Dictionary, config: Dictionary, policy_mapping: Dictionary = {}) -> Dictionary:
 	randomize()
+	# Build user_data with "policy (Character)" labels for the HUD.
+	# The game's HUD reads match_data.user_data.p1 / p2 for the name labels
+	# above each health bar (HudLayer.gd lines 121-125).
+	var p1_policy = str(policy_mapping.get("p1", "p1"))
+	var p2_policy = str(policy_mapping.get("p2", "p2"))
+	var p1_char = str(characters.get("p1", ""))
+	var p2_char = str(characters.get("p2", ""))
 	var data = {
 		"singleplayer": true,
 		"selected_characters": {
-			1: {"name": characters["p1"]},
-			2: {"name": characters["p2"]},
+			1: {"name": p1_char},
+			2: {"name": p2_char},
 		},
 		"selected_styles": {1: null, 2: null},
 		"seed": randi(),
 		"stage_width": DEFAULT_STAGE_WIDTH,
 		"p2_dummy": false,
+		"user_data": {
+			"p1": "%s (%s)" % [p1_policy, p1_char],
+			"p2": "%s (%s)" % [p2_policy, p2_char],
+		},
 	}
 	# Set game_length in match_data so game.gd picks it up during setup.
 	# Game default: 3000 ticks for 1500 HP (2 ticks per HP).
