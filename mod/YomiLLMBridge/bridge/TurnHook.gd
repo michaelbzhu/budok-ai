@@ -455,16 +455,16 @@ func _apply_match_options() -> void:
 			fighter.hp = hp_value
 		print("YomiLLMBridge applied starting_hp=%d to both fighters" % hp_value)
 
-	# Extend the match timer (in game ticks) so high-HP matches don't time out
-	# Default game timer is ~5400 ticks (90 seconds at 60fps).
-	# Scale proportionally: if HP is 10x default (1000 vs 100), give 10x time.
+	# Scale the match timer to match the HP pool.
+	# Game defaults: MAX_HEALTH=1500, game.time=3000 (2 ticks per HP).
+	# Observed: baseline matches use ~1.9 ticks/HP, LLM matches use ~2.5 ticks/HP.
+	# We use 3 ticks per HP for a comfortable margin that avoids timeouts.
 	var match_time = match_options.get("match_time", null)
 	if match_time != null and int(match_time) > 0:
 		_game.time = int(match_time)
 		print("YomiLLMBridge applied match_time=%d ticks" % int(match_time))
-	elif starting_hp != null and int(starting_hp) > 100:
-		# Auto-scale: ~54 ticks per HP point (5400 ticks / 100 HP default)
-		var auto_time = int(starting_hp) * 54
+	elif starting_hp != null and int(starting_hp) > 0:
+		var auto_time = int(starting_hp) * 3
 		_game.time = auto_time
 		print("YomiLLMBridge auto-scaled match_time=%d ticks for starting_hp=%d" % [auto_time, int(starting_hp)])
 

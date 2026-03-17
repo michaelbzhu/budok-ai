@@ -177,6 +177,18 @@ func _build_match_data(characters: Dictionary, config: Dictionary) -> Dictionary
 		"stage_width": DEFAULT_STAGE_WIDTH,
 		"p2_dummy": false,
 	}
+	# Set game_length in match_data so game.gd picks it up during setup.
+	# Game default: 3000 ticks for 1500 HP (2 ticks per HP).
+	# Scale proportionally when starting_hp is overridden.
+	var match_options = config.get("match_options", {})
+	if match_options is Dictionary:
+		var match_time = match_options.get("match_time", null)
+		if match_time != null and int(match_time) > 0:
+			data["game_length"] = int(match_time)
+		else:
+			var starting_hp = match_options.get("starting_hp", null)
+			if starting_hp != null and int(starting_hp) > 0:
+				data["game_length"] = int(starting_hp) * 3
 	return data
 
 

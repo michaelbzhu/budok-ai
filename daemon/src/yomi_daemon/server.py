@@ -189,6 +189,12 @@ class DaemonServer:
             self._active_sessions.pop(session.session_id, None)
             self.logger.info("Session %s closed", session.session_id)
 
+        # Stop the server after the first completed match to prevent
+        # the mod from reconnecting and auto-starting another match.
+        if self._runtime_config is not None:
+            self.logger.info("Shutting down after completed match")
+            await self.stop()
+
     async def _run_match_loop(
         self,
         session: MatchSession,

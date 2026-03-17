@@ -38,6 +38,6 @@
   "trace_seed": 1,
   "stage_id": "training_room",
   "match_options": {
-    "starting_hp": 1000
+    "starting_hp": 1500
   }
 }
