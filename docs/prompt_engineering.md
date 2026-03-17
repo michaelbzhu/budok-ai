@@ -156,6 +156,22 @@ Placeholder stubs exist for `google`, `local`, and `ollama` but are not register
 - HP tracking: "I'm in HurtGrounded state with only 121/200 HP while the opponent has full HP"
 - Yomi reads: "Opponent just used Burst, which means they likely..."
 
+### Iteration 6: Full 1500 HP Cowboy mirror (game default HP)
+
+**Config**: Claude Sonnet 4.6, strategic_v1, temperature 0.7, Cowboy mirror, 1500 HP (game default).
+
+**Result**: 906 turns, P1 wins by timeout (709 vs 400 HP), 165-second replay video (3.5 MB).
+
+| Metric | Value |
+|---|---|
+| Total decisions | 906 |
+| Fallback rate | ~5% |
+| P1 final HP | 709/1500 |
+| P2 final HP | 400/1500 |
+| Video duration | 165 seconds (auto-scaled from HP) |
+
+This is the first full match at the game's native HP setting with a complete, watchable replay video. The recording duration is auto-calculated: `(starting_hp * 3 / 30) + 15` seconds.
+
 ### Key Lessons
 
 1. **Auto-fill payload defaults is essential**. Many game actions have required payload fields that are trivial (zero-range XY, boolean checkboxes). Without auto-fill, nearly every action with any payload_spec causes fallbacks.

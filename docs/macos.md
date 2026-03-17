@@ -323,18 +323,18 @@ After a match ends, the game automatically replays it at full game speed (no dec
 ### How it works
 
 1. Match ends → mod saves a `.replay` file via `ReplayManager.save_replay()`
-2. Mod immediately sends `ReplayStarted` event → daemon starts `ffmpeg -f x11grab -t 60` on the Xvfb display
+2. Mod immediately sends `ReplayStarted` event → daemon starts `ffmpeg -f x11grab -t <duration>` on the Xvfb display (duration auto-scaled from HP)
 3. The game runs 120 post-game ticks (~2 seconds of victory animation), then auto-starts replay playback
 4. Replay plays at half speed (`playback_speed_mod = 2`, 30 ticks/second instead of 60)
 5. When the replay game finishes, mod waits 5 seconds for post-KO animation, then sends `ReplayEnded`
 6. Mod sets `ReplayManager.play_full = false` to prevent the game from starting an infinite replay loop
-7. ffmpeg exits cleanly when its `-t 60` duration expires (no signal-based stopping needed)
+7. ffmpeg exits cleanly when its `-t` duration expires (no signal-based stopping needed)
 8. Daemon pulls the video and replay file from the VM into `runs/<match>/`
 9. Daemon shuts down after the first completed match
 
 ### Key design decisions and why
 
-**Fixed-duration recording (`-t 60`)**: ffmpeg runs for exactly 60 seconds and exits on its own, writing a proper MP4 trailer. Signal-based stopping (SIGINT) is unreliable through the OrbStack process boundary — the `orb run` wrapper doesn't forward signals to ffmpeg inside the VM, producing truncated 48-byte files.
+**Fixed-duration recording (`-t <duration>`)**: ffmpeg is given a calculated max duration and exits on its own, writing a proper MP4 trailer. The duration is auto-scaled from HP: `(starting_hp * 3 / 30) + 15` seconds. For 1500 HP: `(4500/30)+15 = 165s`. For 500 HP: `(1500/30)+15 = 65s`. Signal-based stopping (SIGINT) is unreliable through the OrbStack process boundary — the `orb run` wrapper doesn't forward signals to ffmpeg inside the VM, producing truncated 48-byte files.
 
 **Early ReplayStarted emission**: The mod sends `ReplayStarted` immediately when the match ends (in `_begin_replay_monitoring`), BEFORE the replay game is created. This gives ffmpeg ~5 seconds to start before the replay begins playing. Without this, short matches finish their replay before ffmpeg even starts capturing.
 
@@ -513,7 +513,7 @@ Fixed by adding XYPlot/CountOption detection in LegalActionBuilder, uppercase DI
 
 **Match timer too long / fighters idle in replay (FIXED)**: The match timer was not properly scaled for custom HP values. With 1000 HP, the old code set `game.time = 54000` (54 ticks/HP) instead of the correct ~2-3 ticks/HP. The replay showed combat for ~25 seconds then idle standing for minutes. Fixed by using `starting_hp * 3` for the timer (3 ticks/HP, 50% margin over the game's default 2:1 ratio).
 
-**Replay video truncated to 48 bytes (FIXED)**: Sending SIGINT to ffmpeg via the `orb run` wrapper process doesn't reliably forward the signal to ffmpeg inside the VM. ffmpeg dies without writing an MP4 trailer. Fixed by using ffmpeg's `-t` flag for fixed-duration recording — ffmpeg exits cleanly on its own.
+**Replay video truncated to 48 bytes (FIXED)**: Sending SIGINT to ffmpeg via the `orb run` wrapper process doesn't reliably forward the signal to ffmpeg inside the VM. ffmpeg dies without writing an MP4 trailer. Fixed by using ffmpeg's `-t` flag for fixed-duration recording (auto-scaled from HP) — ffmpeg exits cleanly on its own.
 
 **Replay starts a second match (FIXED)**: After a replay finishes, `game.gd:_physics_process` auto-calls `start_playback()` 120 ticks later, creating an infinite replay loop. The second replay was visible in the recorded video. Fixed by setting `ReplayManager.play_full = false` after the first replay, and shutting down the daemon server after the match.
 
