@@ -16,6 +16,7 @@ YOMI Hustle is only available for Windows and Linux on Steam. On macOS, we run t
 - [x] Step 9: Test replay video recording (713-turn match, 68s replay video, 3.2 MB H.264 1280x720@30fps)
 - [x] Step 10: First LLM match (Claude Sonnet 4 vs greedy_damage, 204 decisions, 0 fallbacks, 5.6s avg latency)
 - [x] Step 11: First LLM vs LLM match (Claude Sonnet 4 vs Claude Sonnet 4, 54 turns, 0 fallbacks, 7.3s avg latency, concurrent processing)
+- [x] Step 12: Replay recording pipeline overhaul (fixed timer scaling, replay loop, ffmpeg signal handling, recording timing)
 
 ## Architecture
 
@@ -245,7 +246,7 @@ The full automated flow is:
 2. ModLoader loads `YomiLLMBridge`
 3. `ModMain` connects to the daemon via WebSocket
 4. Daemon sends `hello_ack` with config (including `character_selection` and `policy_mapping`)
-5. `AutoMatchStarter` resolves characters from the config, constructs `match_data`, and emits the `match_ready` signal on the game's `CharacterSelect` node
+5. `AutoMatchStarter` resolves characters from the config, constructs `match_data` (including `game_length` scaled from HP), and emits the `match_ready` signal on the game's `CharacterSelect` node
 6. The game starts a singleplayer match via its normal `setup_game()` path
 7. `TurnHook` detects `Global.current_game` and begins intercepting turns
 8. Each turn, the daemon routes decisions to the configured policy (LLM or baseline)
@@ -275,6 +276,20 @@ open /tmp/yomi_debug.png
 
 `xvfb-run` sets up its own Xauthority, so plain `DISPLAY=:99 scrot` will fail with "Authorization required". You must pass the matching Xauthority file.
 
+## Game internals reference (from decompiled source)
+
+Key values from `game.gd` and `BaseChar.gd` that affect match configuration:
+
+| Property | Default | Location | Notes |
+|---|---|---|---|
+| `MAX_HEALTH` | 1500 | `BaseChar.gd:20` | Per-fighter HP. The game's internal and display HP are the same scale. |
+| `game.time` | 3000 | `game.gd:16` | Match timer in ticks. At 60 ticks/second = 50 seconds of game time. |
+| `game_length` | (via `match_data`) | `game.gd:351` | Override for `game.time`, set in `match_data` dict passed to `setup_game()`. |
+| `playback_speed_mod` | 1 | `Global.gd:20` | Replay speed: 1 = full speed (60 ticks/s), 2 = half speed (30 ticks/s), 4 = quarter speed. Higher = slower. |
+| `game_end_tick + 120` | | `game.gd:1377` | Ticks after match end before auto-replay starts via `start_playback()`. |
+
+Match timer scaling: the default ratio is 3000 ticks / 1500 HP = 2 ticks per HP. When `match_options.starting_hp` overrides the HP, `AutoMatchStarter` sets `match_data["game_length"]` to `starting_hp * 3` (50% margin) so the timer scales proportionally.
+
 ## ModLoader requirements
 
 The game's built-in ModLoader (`res://modloader/ModLoader.gd`) has specific requirements that are not obvious from the mod API:
@@ -288,81 +303,6 @@ The game's built-in ModLoader (`res://modloader/ModLoader.gd`) has specific requ
 **`_editMetaData` writes fail silently**: The loader attempts to write back to `_metadata` inside the zip (to set `id = "12345"`). This fails because zip resource packs are read-only, producing `ERROR: File must be opened before use. at: store_string`. This is non-fatal.
 
 **No mod output in stdout**: Godot `print()` calls from mods loaded via resource packs may not appear in stdout depending on the load order and buffering. Use daemon-side logs and screenshots for debugging instead.
-
-## First complete match
-
-The first full match ran to natural completion: **596 decisions over 2887 ticks, P2 won by KO** (P1 HP dropped to 31). The daemon received a proper `match_ended` envelope with `reason=ko` and wrote results to `runs/`. Both players used `baseline/random` policy with random character selection (Wizard mirror).
-
-This validates the full pipeline: game boots → mod connects → daemon orchestrates → turns resolve → match ends cleanly → results persist.
-
-### Non-fatal warnings during match
-
-- ~1207 `FGObject` errors in the game log — these are non-fatal and the game continues through them. Likely related to headless rendering or zero-direction moves.
-- Some XYPlot nodes (Roll/Direction, Summon/Direction, DiveKick2/Direction, Grab/Direction) produce zero-bound payload_specs, meaning direction-based moves default to `{"x": 0, "y": 0}`. The `panel_radius` property detection works for Geyser but may not be readable on all widget instances. This doesn't crash the game but limits move variety.
-
-## Known issues (resolved)
-
-**Match crash from FixedMath panics (FIXED)**: The first test (50 decisions) ended with a segfault from `tbfg.so`. Root cause was three interacting bugs:
-
-1. **Missing payload_spec for game UI widgets**: `LegalActionBuilder._classify_data_child()` failed to recognize `XYPlot` and `CountOption` nodes because they extend generic containers and their node names don't match existing patterns. The baseline produced empty `data` for moves like Geyser, causing null access → FixedMath panic.
-
-2. **DI key case mismatch**: Daemon sends lowercase `"di"`, game's `process_extra()` checks uppercase `"DI"`. The `ActionApplier` was passing through lowercase.
-
-3. **Prediction format mismatch**: Daemon sends `prediction: null`, game expects integer `-1`.
-
-Fixed by adding XYPlot/CountOption detection in LegalActionBuilder, uppercase DI normalization in ActionApplier, and integer prediction normalization.
-
-## Known issues (resolved, batch 2)
-
-**Fighter name returns "P1"/"P2" (FIXED)**: `game.gd` renames fighter nodes to `"P1"`/`"P2"` after instantiation, so `fighter.name` never returns the character name. This broke the move catalog lookup and `_build_character_data` dispatch. Fixed by resolving character name from `fighter.filename` (the `.tscn` scene path) via `SCENE_PATH_TO_CHARACTER` reverse-lookup.
-
-**LLM prediction validation failures (FIXED)**: LLMs consistently included `extra.prediction` for actions with `supports.prediction=false`, causing `illegal_output` validation failures and high fallback rates (~70%). Fixed by silently stripping unsupported prediction during response normalization in `response_parser.py`.
-
-**DashForward spam (FIXED)**: Without character-specific move descriptions, LLMs defaulted to DashForward ~50% of turns. Fixed by the character name resolution (enables move catalog), a pre-computed situation summary with distance/range labels, concrete spacing thresholds in the strategic prompt, and explicit anti-repetition rules.
-
-## Known issues (open)
-
-**Observation float types**: Values from `get_pos()` and `get_vel()` may serialize as strings or floats depending on the game's FixedMath types. The `ObservationBuilder` must cast with `int()` to satisfy the daemon's JSON schema validation (which expects `"type": "number"`).
-
-**GDScript 3.x compatibility**: Several GDScript patterns that work in 3.6+ fail in 3.5.1:
-- `max()`/`min()` return `float`, not `int` — wrap in `int()` when the function declares `-> int`
-- `seed` is a built-in function name and cannot be used as a parameter name
-- `Array.slice()` does not exist — use manual iteration
-- `JSON.parse()` returns ALL numbers as `TYPE_REAL` (float), never `TYPE_INT` — integer type checks in `DecisionValidator.gd` must accept `TYPE_REAL` values that are whole numbers (`value == floor(value)`)
-
-## Caveats
-
-**Steam init on startup**: Confirmed non-fatal. The game logs `SteamAPI_Init(): SteamAPI_IsSteamRunning() did not locate a running instance of Steam` and `Sys_LoadModule failed to load: .../steamclient.so`, but `SteamHustle.STARTED` stays `false` and the game boots to the main menu without issues.
-
-**SteamCMD does not work on Apple Silicon**: Both Rosetta-based emulation (OrbStack amd64 VM) and Box64/Box86 (`steamcmd-arm64` Docker image) crash with `futex robust_list not initialized by pthreads`. Use DepotDownloader instead.
-
-**Character selection**: The daemon config controls which characters play. Default mode is `mirror` (random character, same for both sides). Use `assigned` mode for specific matchups:
-
-```json
-"character_selection": {
-  "mode": "assigned",
-  "assignments": {"p1": "Ninja", "p2": "Robot"}
-}
-```
-
-Available built-in characters: `Ninja`, `Cowboy`, `Wizard`, `Robot`, `Mutant`.
-
-**Xvfb cleanup**: If Xvfb crashes or is killed uncleanly, stale lock files may prevent it from restarting. Clean up with:
-
-```bash
-orb run -m ubuntu bash -c "killall Xvfb 2>/dev/null; rm -f /tmp/.X*-lock /tmp/.X11-unix/X*"
-```
-
-**Singleplayer replay saving**: The game only autosaves replays for multiplayer matches. The mod now explicitly calls `ReplayManager.save_replay()` after every singleplayer match. This was needed because our matches use singleplayer mode.
-
-**Default policy**: By default both players use `baseline/random`. To use an LLM, edit the `policy_mapping` in `daemon/config/default_config.json`:
-
-```json
-"policy_mapping": {
-  "p1": "anthropic/claude-sonnet-4-20250514",
-  "p2": "baseline/random"
-}
-```
 
 ## Match artifacts
 
@@ -378,9 +318,44 @@ Results land in `runs/<timestamp>_<match_id>/` on the Mac (where the daemon runs
 
 ## Replay video recording
 
-After a match ends, the game automatically replays it without decision-time pauses — it looks like a real-time fighting game. The mod detects this replay playback and signals the daemon to record it via ffmpeg.
+After a match ends, the game automatically replays it at full game speed (no decision-time pauses). The mod signals the daemon to record this replay via ffmpeg capturing the Xvfb display.
 
-Replay recording is enabled by default. It can be configured in the daemon config file via the `replay_capture` section, or overridden with CLI flags (`--record-replay` / `--no-record-replay`, `--replay-vm`, `--replay-display`).
+### How it works
+
+1. Match ends → mod saves a `.replay` file via `ReplayManager.save_replay()`
+2. Mod immediately sends `ReplayStarted` event → daemon starts `ffmpeg -f x11grab -t 60` on the Xvfb display
+3. The game runs 120 post-game ticks (~2 seconds of victory animation), then auto-starts replay playback
+4. Replay plays at half speed (`playback_speed_mod = 2`, 30 ticks/second instead of 60)
+5. When the replay game finishes, mod waits 5 seconds for post-KO animation, then sends `ReplayEnded`
+6. Mod sets `ReplayManager.play_full = false` to prevent the game from starting an infinite replay loop
+7. ffmpeg exits cleanly when its `-t 60` duration expires (no signal-based stopping needed)
+8. Daemon pulls the video and replay file from the VM into `runs/<match>/`
+9. Daemon shuts down after the first completed match
+
+### Key design decisions and why
+
+**Fixed-duration recording (`-t 60`)**: ffmpeg runs for exactly 60 seconds and exits on its own, writing a proper MP4 trailer. Signal-based stopping (SIGINT) is unreliable through the OrbStack process boundary — the `orb run` wrapper doesn't forward signals to ffmpeg inside the VM, producing truncated 48-byte files.
+
+**Early ReplayStarted emission**: The mod sends `ReplayStarted` immediately when the match ends (in `_begin_replay_monitoring`), BEFORE the replay game is created. This gives ffmpeg ~5 seconds to start before the replay begins playing. Without this, short matches finish their replay before ffmpeg even starts capturing.
+
+**Half-speed replay (`playback_speed_mod = 2`)**: The game's `_physics_process` checks `real_tick % playback_speed_mod == 0` to gate tick processing. With mod=2, the replay runs at 30 ticks/second instead of 60, doubling the playback time. Without this, a 500 HP match's ~1300 ticks of combat play in ~22 seconds, making the action hard to follow.
+
+**Replay loop prevention**: After the game finishes a replay, `game.gd:_physics_process` waits 120 ticks then calls `start_playback()`, which creates a new replay game via `main.gd._on_playback_requested()`. This repeats infinitely (normal singleplayer behavior for rewatching). The mod sets `ReplayManager.play_full = false` after the first replay to break this loop.
+
+**Daemon shutdown after match**: The daemon calls `stop()` after the first match completes. Without this, the mod's BridgeClient reconnects after the WebSocket closes, potentially triggering a new match.
+
+### Recommended HP for video recording
+
+The replay plays at half speed. HP directly controls how many game ticks of combat occur and thus how long the video's action portion is:
+
+| Starting HP | Action ticks | Action duration (half speed) | Notes |
+|---|---|---|---|
+| 100 | ~120 | ~4 seconds | Too short to watch — combat is a blur |
+| 500 | ~1300 | ~43 seconds | Good for quick reviews |
+| 1000 | ~2500 | ~83 seconds | Full match, may exceed 60s recording window |
+| 1500 (default) | ~2900 | ~97 seconds | Game default, exceeds 60s — increase `-t` or accept truncation |
+
+For reviewable videos, **500 HP is the sweet spot** — enough combat to see the full fight within the 60-second recording window.
 
 ### Config file settings
 
@@ -399,16 +374,6 @@ Replay recording is enabled by default. It can be configured in the daemon confi
 ```
 
 All fields are optional and have sensible defaults.
-
-### How it works
-
-1. Match ends → mod saves a `.replay` file via `ReplayManager.save_replay()`
-2. Mod sends a `ReplaySaved` event to the daemon with the file path
-3. ~120 ticks later, the game auto-starts replay playback
-4. Mod detects `ReplayManager.playback == true` on the new game instance
-5. Mod sends `ReplayStarted` event → daemon starts `ffmpeg -f x11grab` on the Xvfb display
-6. Replay finishes → mod sends `ReplayEnded` → daemon stops ffmpeg
-7. Daemon pulls the video and replay file from the VM into `runs/<match>/`
 
 ### Prerequisites
 
@@ -448,18 +413,38 @@ After the match completes and the replay plays through, the daemon will save:
 - `runs/<match>/replay.mp4` — the replay video
 - `runs/<match>/match.replay` — the game's replay file (can be loaded in the game)
 
-### Optional: custom display or VM name
+### Debugging replay videos
+
+**Extract frames from an MP4 for visual inspection** — this is the most effective debugging technique for replay recording issues. It closes the loop so you can see exactly what each second of the video shows without playing it:
 
 ```bash
-uv run --project daemon yomi-daemon --host 0.0.0.0 --record-replay \
-  --replay-display :42 --replay-vm my-ubuntu-vm
+# Extract one frame per second
+MDIR="runs/<timestamp>_<match_id>"
+mkdir -p /tmp/replay_frames
+ffmpeg -i $MDIR/replay.mp4 -vf "fps=1" -q:v 2 /tmp/replay_frames/frame_%03d.jpg
+
+# View specific frames (Claude Code can view images directly with the Read tool)
+# Look for: timer values, health bar states, "P1 WIN"/"P2 WIN" text,
+# "E: Edit replay" banner (indicates replay mode), fighter positions
 ```
 
-### Replay file saving
+When debugging, check each frame for:
+- **"E: Edit replay" banner at top** → this is the replay, not the live match
+- **Timer value** → tells you where in the match timeline this frame is
+- **Health bar levels** → confirms combat is happening (bars should drain over time)
+- **"P1 WIN" / "P2 WIN" text** → match-end screen or replay-end screen
+- **Fighter positions** → are they fighting or standing idle?
 
-Even with replay recording disabled, the mod saves replay files after every match. The game normally only autosaves replays for multiplayer matches, but our mod calls `ReplayManager.save_replay()` explicitly for singleplayer matches. The replay path is reported in the `match_ended` envelope and recorded in `result.json`.
+Common video problems and their causes:
 
-Replay files are saved to `user://replay/autosave/` inside the VM, which resolves to `~/.local/share/godot/app_userdata/Your Only Move Is HUSTLE/replay/autosave/`.
+| Symptom | Cause | Fix |
+|---|---|---|
+| Video is 48 bytes / corrupt | ffmpeg killed before writing MP4 trailer | Use `-t` duration flag instead of signal-based stopping |
+| Video starts with "P1 WIN" screen | Recording started at match end, before replay began | Emit `ReplayStarted` earlier so ffmpeg starts during post-game animation |
+| Combat happens in <1 second | Replay plays at full speed (60 ticks/s) | Set `Global.playback_speed_mod = 2` for half speed |
+| Fighters stand idle for most of video | Match timer much longer than actual combat | Scale timer properly: `starting_hp * 3` ticks |
+| Second match starts in video | Game's infinite replay loop creates new game instance | Set `ReplayManager.play_full = false` after first replay |
+| Frames skip / timer jumps | Game runs ticks faster than ffmpeg captures | Use `playback_speed_mod = 2` or higher; increase ffmpeg framerate |
 
 ### Troubleshooting
 
@@ -467,103 +452,111 @@ Replay files are saved to `user://replay/autosave/` inside the VM, which resolve
 
 **Video is black**: The game must be rendering to the virtual display. Verify with `DISPLAY=:99 scrot /tmp/test.png` from the VM.
 
-**Recording never starts**: The replay only begins ~120 ticks after the match ends. The mod waits up to 60 seconds for replay detection. Check daemon logs for `ReplayStarted` events.
-
-**ffmpeg doesn't exit cleanly on SIGINT**: When ffmpeg runs inside the VM via `orb run`, SIGINT goes to the `orb` wrapper process, not directly to ffmpeg. The daemon handles this with a 15-second timeout after SIGINT, then kills the process. A fallback `pgrep`/`kill` inside the VM catches any orphaned ffmpeg processes. The video file is still valid because ffmpeg flushes data continuously.
-
 **replay_path is null in result.json**: The `ReplaySaved` event arrives after `match_ended` finalization, so `replay_path` in `result.json` is currently `null`. The replay video is still saved correctly to the run directory. This is a cosmetic gap.
 
-## First replay video recording
-
-The first replay video was captured successfully: **713 turns, P1 won by KO, 68-second replay video** (3.2 MB, H.264, 1280x720 @ 30fps). The full pipeline validated:
-
-1. Match completed normally (baseline/random mirror, Ninja)
-2. Mod saved replay file via `ReplayManager.save_replay()`
-3. Game auto-started replay playback ~3 seconds after match end
-4. Mod detected `ReplayManager.playback == true` on new game instance
-5. Mod sent `ReplayStarted` with display `:99` → daemon started ffmpeg
-6. Replay played for ~53 seconds
-7. Mod sent `ReplayEnded` → daemon stopped ffmpeg and pulled video
-8. `replay.mp4` written to run directory (valid, playable)
-
-## First LLM match
-
-The first LLM-backed match ran successfully: **Claude Sonnet 4 (P1) vs baseline/greedy_damage (P2)**, 300 HP starting health, strategic_v1 prompt.
-
-**Results:**
-
-| Metric | Value |
-|---|---|
-| Total decisions | 204 (99 LLM, 105 baseline) |
-| Fallbacks | 0 |
-| Avg LLM latency | 5,565ms |
-| Tokens consumed | 603K in / 19K out |
-| Starting HP | 300 each |
-| Final HP | P1: 30, P2: 300 |
-| Match ended | Manually killed (defensive stalemate) |
-
-**Config used:** `daemon/config/llm_first_test.json`
-
-**Key observations:**
-- Zero fallbacks — response parsing worked perfectly on every turn
-- Claude produced coherent strategic reasoning (references HP, positioning, opponent state)
-- Claude played defensively at low HP (rolls, dodges, parries), surviving 150+ turns at 30 HP
-- The greedy_damage baseline's grab spam couldn't finish Claude off — defensive stalemate
-- `match_options.starting_hp = 300` shortened the match from 1500 HP default
-
-**Critical bug fixed:** `config.py` defaulted `resolved_env` to `{}` instead of `os.environ`, so API keys from environment variables were never resolved via the CLI path. Fixed in commit `83432e0`.
-
-## First LLM vs LLM match
-
-The first LLM-vs-LLM match ran successfully: **Claude Sonnet 4 (P1) vs Claude Sonnet 4 (P2)**, 100 HP starting health, strategic_v1 prompt, concurrent decision processing.
-
-**Results:**
-
-| Metric | Value |
-|---|---|
-| Total turns | 54 |
-| Fallbacks | 0 |
-| Avg latency | 7,300ms (concurrent pair) |
-| Tokens consumed | ~363K total |
-| Starting HP | 100 each |
-| Final HP | P1: 1, P2: 10 |
-| Winner | P1 (KO) |
-
-**Config used:** `daemon/config/llm_v_llm.json`
-
-**Key observations:**
-- Zero fallbacks — both players parsed correctly every turn
-- Concurrent decision processing: both API calls run in parallel (~7s per turn pair instead of ~14s sequential)
-- WebSocket ping timeout increased to 30s to prevent disconnects during LLM processing
-- `match_options.starting_hp = 100` kept the match short for testing
-- Correction retry enabled for both players
-- Godot 3.5.1 integer validation fix was critical — all JSON numbers parse as floats
-
-**Known issues from early LLM matches (now fixed):**
-- Both agents spammed `DashForward` because `fighter.name` returned `"P1"`/`"P2"` instead of the character name, so the move catalog could not inject character-specific move descriptions. Fixed by resolving character name from `fighter.filename` scene path.
-- LLMs included `extra.prediction` for actions that don't support it, causing validation failures and high fallback rates. Fixed by silently stripping unsupported prediction during response normalization.
-- After fixes: agents use character-specific moves (LightningSlice, Lasso, BoltOfMagma, etc.), mix attacks/grabs/defense with yomi reasoning, and maintain <15% fallback rate.
-
-**Running an LLM match:**
+## Running an LLM match
 
 ```bash
-# Start daemon with LLM config (source API key first)
-cd daemon
-source ../.env && export ANTHROPIC_API_KEY
-uv run python -m yomi_daemon.cli --config config/llm_first_test.json
+# 1. Package and push mod with VM host IP baked in
+cd /path/to/yomi-ai
+sed -i '' 's/"host": "127.0.0.1"/"host": "192.168.139.3"/' mod/YomiLLMBridge/config/default_config.json
+scripts/package_mod.sh
+orb push -m ubuntu dist/YomiLLMBridge.zip /home/$USER/games/yomi/mods/YomiLLMBridge.zip
+sed -i '' 's/"host": "192.168.139.3"/"host": "127.0.0.1"/' mod/YomiLLMBridge/config/default_config.json
 
-# In another terminal, package and push mod with VM host IP baked in
-cd mod && zip -r /tmp/YomiLLMBridge.zip YomiLLMBridge/
-# Update host to 192.168.139.3 in the zip (see Step 6)
-orb push -m ubuntu /tmp/YomiLLMBridge.zip /home/$USER/games/yomi/mods/YomiLLMBridge.zip
+# 2. Clean up any stale processes
+orb run -m ubuntu bash -c "ps aux | grep YourOnly | grep -v grep | awk '{print \$2}' | xargs -r kill -9"
 
-# Launch game in VM
+# 3. Start Xvfb if not already running
+orb run -m ubuntu bash -c "Xvfb :99 -screen 0 1280x720x24 -nocursor &>/dev/null &"
+
+# 4. Start daemon with LLM config
+source .env && export ANTHROPIC_API_KEY
+cd daemon && uv run python -m yomi_daemon.cli --config config/llm_v_llm.json --log-level INFO
+
+# 5. In another terminal, launch the game
 orb run -m ubuntu bash -c '
 export LIBGL_ALWAYS_SOFTWARE=1
 export LD_LIBRARY_PATH=$HOME/games/yomi:$LD_LIBRARY_PATH
 DISPLAY=:99 $HOME/games/yomi/YourOnlyMoveIsHUSTLE.x86_64
 '
 ```
+
+The daemon automatically shuts down after the match completes and the replay video is saved.
+
+**Important**: Kill ALL old game processes before starting a new match. Each `orb run` that launches the game creates a new process. Accumulated game processes consume ~800MB each and will exhaust VM memory:
+
+```bash
+orb run -m ubuntu bash -c "ps aux | grep YourOnly | grep -v grep | awk '{print \$2}' | xargs -r kill -9"
+orb run -m ubuntu free -h  # verify memory is freed
+```
+
+## Known issues (resolved)
+
+**Match crash from FixedMath panics (FIXED)**: The first test (50 decisions) ended with a segfault from `tbfg.so`. Root cause was three interacting bugs:
+
+1. **Missing payload_spec for game UI widgets**: `LegalActionBuilder._classify_data_child()` failed to recognize `XYPlot` and `CountOption` nodes because they extend generic containers and their node names don't match existing patterns. The baseline produced empty `data` for moves like Geyser, causing null access → FixedMath panic.
+
+2. **DI key case mismatch**: Daemon sends lowercase `"di"`, game's `process_extra()` checks uppercase `"DI"`. The `ActionApplier` was passing through lowercase.
+
+3. **Prediction format mismatch**: Daemon sends `prediction: null`, game expects integer `-1`.
+
+Fixed by adding XYPlot/CountOption detection in LegalActionBuilder, uppercase DI normalization in ActionApplier, and integer prediction normalization.
+
+**Fighter name returns "P1"/"P2" (FIXED)**: `game.gd` renames fighter nodes to `"P1"`/`"P2"` after instantiation, so `fighter.name` never returns the character name. This broke the move catalog lookup and `_build_character_data` dispatch. Fixed by resolving character name from `fighter.filename` (the `.tscn` scene path) via `SCENE_PATH_TO_CHARACTER` reverse-lookup.
+
+**LLM prediction validation failures (FIXED)**: LLMs consistently included `extra.prediction` for actions with `supports.prediction=false`, causing `illegal_output` validation failures and high fallback rates (~70%). Fixed by silently stripping unsupported prediction during response normalization in `response_parser.py`.
+
+**DashForward spam (FIXED)**: Without character-specific move descriptions, LLMs defaulted to DashForward ~50% of turns. Fixed by the character name resolution (enables move catalog), a pre-computed situation summary with distance/range labels, concrete spacing thresholds in the strategic prompt, and explicit anti-repetition rules.
+
+**Payload validation failures / high fallback rate (FIXED)**: Many actions (Grab, Roll, etc.) have required payload fields (Direction, Dash, Jump) that are trivial (boolean checkboxes defaulting to false, zero-range XY plots). The LLM omits these, causing `illegal_output`. Fixed by auto-filling payload defaults from `payload_spec` in the response parser.
+
+**Match timer too long / fighters idle in replay (FIXED)**: The match timer was not properly scaled for custom HP values. With 1000 HP, the old code set `game.time = 54000` (54 ticks/HP) instead of the correct ~2-3 ticks/HP. The replay showed combat for ~25 seconds then idle standing for minutes. Fixed by using `starting_hp * 3` for the timer (3 ticks/HP, 50% margin over the game's default 2:1 ratio).
+
+**Replay video truncated to 48 bytes (FIXED)**: Sending SIGINT to ffmpeg via the `orb run` wrapper process doesn't reliably forward the signal to ffmpeg inside the VM. ffmpeg dies without writing an MP4 trailer. Fixed by using ffmpeg's `-t` flag for fixed-duration recording — ffmpeg exits cleanly on its own.
+
+**Replay starts a second match (FIXED)**: After a replay finishes, `game.gd:_physics_process` auto-calls `start_playback()` 120 ticks later, creating an infinite replay loop. The second replay was visible in the recorded video. Fixed by setting `ReplayManager.play_full = false` after the first replay, and shutting down the daemon server after the match.
+
+## Known issues (open)
+
+**Observation float types**: Values from `get_pos()` and `get_vel()` may serialize as strings or floats depending on the game's FixedMath types. The `ObservationBuilder` must cast with `int()` to satisfy the daemon's JSON schema validation (which expects `"type": "number"`).
+
+**GDScript 3.x compatibility**: Several GDScript patterns that work in 3.6+ fail in 3.5.1:
+- `max()`/`min()` return `float`, not `int` — wrap in `int()` when the function declares `-> int`
+- `seed` is a built-in function name and cannot be used as a parameter name
+- `Array.slice()` does not exist — use manual iteration
+- `JSON.parse()` returns ALL numbers as `TYPE_REAL` (float), never `TYPE_INT` — integer type checks in `DecisionValidator.gd` must accept `TYPE_REAL` values that are whole numbers (`value == floor(value)`)
+
+**Video captures first ~4 seconds of match-end screen**: ffmpeg starts recording at match end (before the replay game is created). The first few seconds of video show the victory screen with "P1 WIN" / "P2 WIN" before the replay begins. This is cosmetic — the replay itself plays fully within the recording window.
+
+## Caveats
+
+**Steam init on startup**: Confirmed non-fatal. The game logs `SteamAPI_Init(): SteamAPI_IsSteamRunning() did not locate a running instance of Steam` and `Sys_LoadModule failed to load: .../steamclient.so`, but `SteamHustle.STARTED` stays `false` and the game boots to the main menu without issues.
+
+**SteamCMD does not work on Apple Silicon**: Both Rosetta-based emulation (OrbStack amd64 VM) and Box64/Box86 (`steamcmd-arm64` Docker image) crash with `futex robust_list not initialized by pthreads`. Use DepotDownloader instead.
+
+**Character selection**: The daemon config controls which characters play. Default mode is `mirror` (random character, same for both sides). Use `assigned` mode for specific matchups:
+
+```json
+"character_selection": {
+  "mode": "assigned",
+  "assignments": {"p1": "Ninja", "p2": "Robot"}
+}
+```
+
+Available built-in characters: `Ninja`, `Cowboy`, `Wizard`, `Robot`, `Mutant`.
+
+**Xvfb cleanup**: If Xvfb crashes or is killed uncleanly, stale lock files may prevent it from restarting. Clean up with:
+
+```bash
+orb run -m ubuntu bash -c "killall Xvfb 2>/dev/null; rm -f /tmp/.X*-lock /tmp/.X11-unix/X*"
+```
+
+**VM memory exhaustion**: Each game process uses ~800MB. If you run multiple matches without killing old game processes, the VM will run out of memory. Always kill all game processes before starting a new match (see "Running an LLM match" above).
+
+**Singleplayer replay saving**: The game only autosaves replays for multiplayer matches. The mod now explicitly calls `ReplayManager.save_replay()` after every singleplayer match. This was needed because our matches use singleplayer mode.
+
+**Default policy**: By default both players use `baseline/random`. To use an LLM, edit the `policy_mapping` in `daemon/config/llm_v_llm.json`.
 
 ## OrbStack CLI reference
 
@@ -579,3 +572,4 @@ Notes:
 - `orb run` does not use `--` before the command — just `orb run -m ubuntu uname -m`.
 - `orb push`/`orb pull` require `-m <machine>` and absolute paths for the remote side (not `~`). Push files individually, not directories.
 - The default VM name when created via the OrbStack GUI is `ubuntu` (not a custom name).
+- **Signals do not pass through `orb run`**. SIGINT sent to an `orb run` process kills the wrapper but does NOT forward to the child process inside the VM. Use `orb run -m ubuntu kill -INT <PID>` as a separate command to signal processes inside the VM.
