@@ -33,11 +33,11 @@
   },
   "character_selection": {
     "mode": "assigned",
-    "assignments": {"p1": "Robot", "p2": "Ninja"}
+    "assignments": {"p1": "Cowboy", "p2": "Cowboy"}
   },
   "trace_seed": 1,
   "stage_id": "training_room",
   "match_options": {
-    "starting_hp": 200
+    "starting_hp": 1000
   }
 }
