@@ -630,18 +630,16 @@ func _begin_replay_monitoring() -> void:
 	_replay_game = null
 	_replay_wait_started_ms = OS.get_ticks_msec()
 	_replay_end_grace_ms = 0
-	# Set normal playback speed for recording quality
-	Global.playback_speed_mod = 1
+	# Slow down replay playback for watchable recording.
+	# playback_speed_mod controls tick processing: real_tick % mod == 0
+	# mod=1: 60 ticks/s (full speed), mod=2: 30 ticks/s, mod=4: 15 ticks/s
+	# We use mod=2 for half-speed: smooth enough while being watchable.
+	Global.playback_speed_mod = 2
 
-	# Pause the game to prevent the replay from starting before ffmpeg is ready.
-	# game.gd _physics_process: if not game_started: return
-	# This stops the 120-tick countdown to start_playback().
-	# We'll resume it after sending ReplayStarted and giving ffmpeg time to start.
-	if _game != null and is_instance_valid(_game):
-		_game.game_started = false
-		print("YomiLLMBridge paused game to wait for ffmpeg startup")
-
-	# Send ReplayStarted so the daemon begins launching ffmpeg.
+	# Send ReplayStarted immediately so the daemon starts ffmpeg BEFORE the
+	# replay game is created. The game auto-starts replay ~120 ticks (~2s)
+	# after match end. By sending the event now, ffmpeg has ~2-5 seconds to
+	# start before the replay plays.
 	var display = OS.get_environment("DISPLAY")
 	if display == "":
 		display = ":99"
@@ -657,14 +655,6 @@ func _monitor_replay_lifecycle() -> void:
 			_awaiting_replay = false
 			_telemetry.emit_replay_ended()
 			return
-
-		# After 5 seconds, resume the game so the replay starts.
-		# This gives ffmpeg enough time to start capturing the display.
-		var elapsed = OS.get_ticks_msec() - _replay_wait_started_ms
-		if elapsed > 5000 and _game != null and is_instance_valid(_game):
-			if not _game.game_started:
-				_game.game_started = true
-				print("YomiLLMBridge resumed game after %dms ffmpeg startup delay" % elapsed)
 
 		# Detect the replay game instance for end-of-replay monitoring.
 		if not _has_global_game():
