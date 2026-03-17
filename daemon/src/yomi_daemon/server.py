@@ -590,7 +590,9 @@ class DaemonServer:
                 "Session %s: replay capture phase ended (timeout or disconnect)",
                 session.session_id,
             )
-            if capture.is_recording:
+            # Pull the video even if ffmpeg already exited (was_started covers
+            # the case where -t duration expired before ReplayEnded arrived).
+            if capture.is_recording or capture.was_started:
                 video_path = await capture.stop_recording()
                 if video_path:
                     self.logger.info("Replay video saved to %s (after timeout)", video_path)
