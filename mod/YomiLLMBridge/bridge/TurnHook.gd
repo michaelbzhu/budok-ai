@@ -480,7 +480,36 @@ func _apply_match_options_to_game(game) -> void:
 		for fighter in [game.p1, game.p2]:
 			fighter.MAX_HEALTH = hp_value
 			fighter.hp = hp_value
+			fighter.trail_hp = hp_value
+		# Update HUD health bar max values so bars render as full.
+		# The HUD reads MAX_HEALTH during its own init (before our override),
+		# so healthbar.max_value is still 1500. Fix it here.
+		var hud = _find_hud(game)
+		if hud != null:
+			_sync_hud_health_bars(hud, hp_value)
 		print("YomiLLMBridge applied starting_hp=%d to game instance" % hp_value)
+
+
+func _find_hud(game) -> Node:
+	"""Find the HudLayer node in the scene tree."""
+	var root = get_tree().get_root() if get_tree() != null else null
+	if root == null:
+		return null
+	return root.find_node("HudLayer", true, false)
+
+
+func _sync_hud_health_bars(hud, max_hp: int) -> void:
+	"""Update all health bar max_value and trail values to match the HP override."""
+	for bar_name in [
+		"P1HealthBar", "P2HealthBar",
+		"P1HealthBarTrail", "P2HealthBarTrail",
+		"P1GhostHealthBar", "P2GhostHealthBar",
+		"P1GhostHealthBarTrail", "P2GhostHealthBarTrail",
+	]:
+		var bar = hud.find_node(bar_name, true, false)
+		if bar != null:
+			bar.max_value = max_hp
+			bar.value = max_hp
 
 
 func _publish_compatibility_failure(compatibility: Dictionary) -> void:
