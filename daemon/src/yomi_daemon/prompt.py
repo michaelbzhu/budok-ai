@@ -264,10 +264,12 @@ def _situation_summary(request: DecisionRequest) -> str:
 
     me = next((f for f in fighters if f.id == request.player_id), fighters[0])
     opp = next((f for f in fighters if f.id != request.player_id), fighters[1])
-    distance = abs(me.position.x - opp.position.x)
-    if distance < 200:
+    h_distance = abs(me.position.x - opp.position.x)
+    if h_distance < 100:
+        range_label = "POINT BLANK"
+    elif h_distance < 200:
         range_label = "CLOSE"
-    elif distance < 400:
+    elif h_distance < 400:
         range_label = "MID"
     else:
         range_label = "FAR"
@@ -294,13 +296,76 @@ def _situation_summary(request: DecisionRequest) -> str:
         "## Situation",
         f"- You are **{request.player_id}** ({me.character})",
         f"- Your HP: {me.hp}/{me.max_hp} | Opponent HP: {opp.hp}/{opp.max_hp}",
-        f"- Distance: **{int(distance)} units ({range_label} range)**",
+        f"- Horizontal distance: **{int(h_distance)} units ({range_label})**",
         f"- Your state: {me.current_state} | Opponent state: {opp.current_state}",
         f"- Meter: {me.meter} | Burst: {me.burst}",
     ]
+
+    # Vertical positioning
+    if abs(opp.position.y) > 30:
+        opp_air = "high in the air" if abs(opp.position.y) > 150 else "airborne"
+        lines.append(
+            f"- Opponent is **{opp_air}** (y={int(opp.position.y)}). "
+            f"Most ground attacks will miss an airborne opponent. "
+            f"Use anti-airs (UpwardSwipe) or wait for them to land."
+        )
+    if abs(me.position.y) > 30:
+        lines.append(
+            f"- You are **airborne** (y={int(me.position.y)}). "
+            f"Ground-only attacks are unavailable. Use aerial moves or wait to land."
+        )
+
+    # Range guidance with h_reach awareness
+    range_guidance = _range_guidance(request, h_distance)
+    if range_guidance:
+        lines.append(range_guidance)
+
     if repetition_warning:
         lines.append(repetition_warning)
     return "\n".join(lines)
+
+
+def _range_guidance(request: DecisionRequest, h_distance: float) -> str:
+    """Generate a compact note about which attacks can/cannot reach the opponent."""
+    character = _resolve_active_character(request)
+    catalog = _load_move_catalog()
+    universal = cast(JsonObject, catalog.get("_universal", {}))
+    char_moves = cast(JsonObject, catalog.get(character, {})) if character else {}
+
+    # Collect h_reach data for legal actions
+    in_range: list[str] = []
+    out_of_range: list[str] = []
+    for action in request.legal_actions:
+        entry = cast(
+            JsonObject,
+            char_moves.get(action.action, universal.get(action.action, {})),
+        )
+        if not isinstance(entry, dict):
+            continue
+        h_reach = entry.get("h_reach")
+        if h_reach is None or not isinstance(h_reach, int | float):
+            continue
+        cat = entry.get("category", "")
+        if cat in ("defense", "movement", "utility"):
+            continue
+        label = action.label or action.action
+        if h_reach >= h_distance:
+            in_range.append(f"{label}(~{int(h_reach)})")
+        else:
+            out_of_range.append(f"{label}(~{int(h_reach)})")
+
+    if not in_range and not out_of_range:
+        return ""
+
+    parts: list[str] = []
+    if out_of_range and h_distance > 100:
+        parts.append(
+            f"**OUT OF RANGE** at {int(h_distance)} units: {', '.join(out_of_range[:6])}. "
+            f"These attacks will whiff — close distance first or use longer-range moves."
+        )
+    if in_range:
+        parts.append(f"In range: {', '.join(in_range[:8])}")
+    return "- " + " | ".join(parts) if parts else ""
 
 
 def _tactical_cheat_sheet(request: DecisionRequest) -> str:
@@ -310,26 +375,55 @@ def _tactical_cheat_sheet(request: DecisionRequest) -> str:
     if len(fighters) < 2:
         return ""
 
+    me = next((f for f in fighters if f.id == request.player_id), fighters[0])
     opp = next((f for f in fighters if f.id != request.player_id), fighters[1])
+    h_distance = abs(me.position.x - opp.position.x)
 
     lines = ["## Tactical Cheat Sheet"]
 
-    # Suggestion based on opponent's current state
+    # Suggestion based on opponent's current state — now range-aware
     opp_state = opp.current_state.lower()
+    is_close = h_distance < 100
+    is_mid = 100 <= h_distance < 250
     if any(kw in opp_state for kw in ("attack", "slash", "kick", "punch", "combo", "shoot")):
         lines.append(
             "- Opponent is ATTACKING: **Block (ParryHigh), SpotDodge, or Roll to counter**"
         )
     elif any(kw in opp_state for kw in ("block", "parry", "guard")):
-        lines.append(
-            "- Opponent is BLOCKING: **Grab or command grab to throw through their guard**"
-        )
+        if is_close:
+            lines.append(
+                "- Opponent is BLOCKING: **Grab to throw through their guard (you're close enough)**"
+            )
+        else:
+            lines.append(
+                "- Opponent is BLOCKING: Grab beats block, but you're too far for most grabs. "
+                "**Close distance first, or use a long-range grab (Lasso, Vacuum) if available.**"
+            )
     elif any(kw in opp_state for kw in ("grab", "throw", "lasso")):
-        lines.append("- Opponent is GRABBING: **Any attack beats a grab — use a fast attack**")
+        if is_close:
+            lines.append(
+                "- Opponent is GRABBING: **Any attack beats a grab — use a fast attack (you're in range)**"
+            )
+        elif is_mid:
+            lines.append(
+                "- Opponent is GRABBING: Attacks beat grabs, but **check your attack's h_reach** — "
+                "you may be too far for melee. Use a ranged attack or close distance."
+            )
+        else:
+            lines.append(
+                "- Opponent is GRABBING at range: Their grab probably can't reach you either. "
+                "**Use this opening to approach or zone with projectiles.**"
+            )
     elif any(kw in opp_state for kw in ("whiff", "recovery", "landing", "endlag")):
-        lines.append(
-            "- Opponent is in RECOVERY: **Punish with a high-damage move (Stinger, VSlash, 3Combo)**"
-        )
+        if is_close:
+            lines.append(
+                "- Opponent is in RECOVERY: **Punish with a high-damage move — they can't block**"
+            )
+        else:
+            lines.append(
+                "- Opponent is in RECOVERY: Good punish opportunity, but "
+                "**only if you have an attack that reaches.** Close distance or use ranged attacks."
+            )
     else:
         lines.append("- Opponent is NEUTRAL: **Mix unpredictably between attack, grab, and block**")
 
@@ -459,6 +553,24 @@ def _character_guide(request: DecisionRequest) -> str:
 def _compact_observation(request: DecisionRequest) -> JsonObject:
     """Produce a compact observation dict that strips redundant/verbose fields."""
     obs = request.observation.to_dict()
+
+    # Add pre-computed distances so the model doesn't have to do coordinate math
+    fighters = obs.get("fighters", [])
+    if len(fighters) >= 2:
+        f0 = fighters[0]
+        f1 = fighters[1]
+        p0 = f0.get("position", {})
+        p1 = f1.get("position", {})
+        h_dist = abs(p0.get("x", 0) - p1.get("x", 0))
+        v_diff = p0.get("y", 0) - p1.get("y", 0)  # positive = f0 above f1
+        obs["_distances"] = {
+            "horizontal": int(h_dist),
+            "vertical_diff": int(v_diff),
+            "note": "horizontal = abs(x difference). "
+            "vertical_diff = your_y - opponent_y (negative means opponent is higher). "
+            "Compare horizontal to h_reach to know if an attack can connect.",
+        }
+
     # Strip history from observation — it's already summarized in Situation/Cheat Sheet
     # and the full entries are verbose. Keep last 5 entries with compact format.
     if "history" in obs and isinstance(obs["history"], list):
@@ -488,10 +600,17 @@ def _compact_observation(request: DecisionRequest) -> JsonObject:
     return obs
 
 
-_DEFENSIVE_ACTIONS = frozenset({
-    "ParryHigh", "ParryLow", "ParrySuper", "ParryAfterWhiff",
-    "Block", "BlockHigh", "BlockLow",
-})
+_DEFENSIVE_ACTIONS = frozenset(
+    {
+        "ParryHigh",
+        "ParryLow",
+        "ParrySuper",
+        "ParryAfterWhiff",
+        "Block",
+        "BlockHigh",
+        "BlockLow",
+    }
+)
 
 _REPETITION_FILTER_THRESHOLD = 4
 
@@ -593,6 +712,30 @@ def _legal_actions_payload(request: DecisionRequest) -> list[JsonObject]:
         weakness = catalog_entry.get("weakness") if isinstance(catalog_entry, dict) else None
         if weakness:
             entry["weakness"] = weakness
+        h_reach = catalog_entry.get("h_reach") if isinstance(catalog_entry, dict) else None
+        if h_reach is not None:
+            entry["h_reach"] = h_reach
+        v_range = catalog_entry.get("v_range") if isinstance(catalog_entry, dict) else None
+        if v_range is not None:
+            entry["v_range"] = v_range
+        commitment = catalog_entry.get("commitment") if isinstance(catalog_entry, dict) else None
+        if commitment:
+            entry["commitment"] = commitment
+        startup_ticks = (
+            catalog_entry.get("startup_ticks") if isinstance(catalog_entry, dict) else None
+        )
+        if startup_ticks is not None:
+            entry["startup_ticks"] = startup_ticks
+        active_ticks_val = (
+            catalog_entry.get("active_ticks") if isinstance(catalog_entry, dict) else None
+        )
+        if active_ticks_val is not None:
+            entry["active_ticks"] = active_ticks_val
+        total_damage = (
+            catalog_entry.get("total_damage") if isinstance(catalog_entry, dict) else None
+        )
+        if total_damage is not None:
+            entry["total_damage"] = total_damage
 
         # Only include non-trivial payload_specs (omit zero-range XY plots)
         if action.payload_spec and not _is_zero_range_payload(action.payload_spec):
