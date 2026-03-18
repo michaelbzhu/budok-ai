@@ -70,12 +70,14 @@ def render_prompt(
 
     variant = _variant_for_prompt_version(prompt_version)
     cheat_sheet = _tactical_cheat_sheet(request)
+    char_guide = _character_guide(request)
     sections = [
         template_path.read_text(encoding="utf-8").strip(),
         _compact_output_contract(),
         f"## Turn Context\n```json\n{_json_dump(_turn_context(request, policy_id=policy_id))}\n```",
         _situation_summary(request),
         *([cheat_sheet] if cheat_sheet else []),
+        *([char_guide] if char_guide else []),
         f"## Observation\n```json\n{_json_dump(_compact_observation(request))}\n```",
         _grouped_legal_actions_section(request),
     ]
@@ -382,6 +384,51 @@ def _tactical_cheat_sheet(request: DecisionRequest) -> str:
     return "\n".join(lines)
 
 
+# Per-character strategic guidance that the generic prompt can't provide.
+# Keyed by character name as it appears in the observation.
+_CHARACTER_GUIDES: dict[str, str] = {
+    "Wizard": (
+        "## Character Guide: Wizard\n"
+        "Wizard is a **zoner/spellcaster** — your goal is to control space with projectiles "
+        "and spells, NOT to sit and block.\n"
+        "- **At close range**: use TomeSlap (fastest attack), ManaStrike, Kick, or VileClutch/Grab "
+        "to punish. Do NOT just parry — parrying repeatedly is the #1 mistake.\n"
+        "- **At mid range**: BoltOfMagma (high damage, multi-hit), IceSpikeGround, ConjureWeapon, "
+        "FlameWave are all strong options.\n"
+        "- **At long range**: MagicMissile (safe chip), FlameWave, ConjureStorm for area control. "
+        "Liftoff (Missile Form) is a fast dash-attack to close distance.\n"
+        "- **Key combos**: TomeSlap → ManaStrike at close range. BoltOfMagma for mid-range pressure. "
+        "Gust to push opponents away and create zoning space.\n"
+        "- **NEVER parry more than 2 turns in a row.** Wizard has excellent ranged attacks — USE THEM. "
+        "Blocking is a waste of Wizard's kit."
+    ),
+    "Robot": (
+        "## Character Guide: Robot\n"
+        "Robot is a **grappler/heavyweight** — your goal is to get close and land devastating "
+        "command grabs and heavy attacks.\n"
+        "- Use DashForward and movement to close distance, then Grab or command grabs.\n"
+        "- Robot's attacks are slow but hit HARD. Mix grabs with heavy attacks.\n"
+        "- Use armor moves to tank through opponent attacks when approaching."
+    ),
+    "Ninja": (
+        "## Character Guide: Ninja\n"
+        "Ninja is a **rushdown/mixup** character — your goal is to stay close and overwhelm "
+        "with fast attacks and mix-ups.\n"
+        "- Ninja has the fastest attacks in the game. Abuse speed advantage at close range.\n"
+        "- Use Shuriken at range to force approaches, then mix attack/grab/block at close range.\n"
+        "- Kunai and aerial moves give excellent air control."
+    ),
+}
+
+
+def _character_guide(request: DecisionRequest) -> str:
+    """Return character-specific strategic guidance if available."""
+    character = _resolve_active_character(request)
+    if character and character in _CHARACTER_GUIDES:
+        return _CHARACTER_GUIDES[character]
+    return ""
+
+
 def _compact_observation(request: DecisionRequest) -> JsonObject:
     """Produce a compact observation dict that strips redundant/verbose fields."""
     obs = request.observation.to_dict()
@@ -414,9 +461,43 @@ def _compact_observation(request: DecisionRequest) -> JsonObject:
     return obs
 
 
+_DEFENSIVE_ACTIONS = frozenset({
+    "ParryHigh", "ParryLow", "ParrySuper", "ParryAfterWhiff",
+    "Block", "BlockHigh", "BlockLow",
+})
+
+_REPETITION_FILTER_THRESHOLD = 4
+
+
+def _detect_repeated_action(request: DecisionRequest) -> str | None:
+    """Return action name if the player has repeated a defensive action N+ times in a row."""
+    history = request.observation.history
+    my_key = f"{request.player_id}_action"
+    recent: list[str] = []
+    for entry in history[-_REPETITION_FILTER_THRESHOLD:]:
+        d = entry.to_dict()
+        action = d.get(my_key)
+        if action:
+            recent.append(action)
+
+    if len(recent) >= _REPETITION_FILTER_THRESHOLD and len(set(recent)) == 1:
+        action = recent[0]
+        if action in _DEFENSIVE_ACTIONS:
+            return action
+    return None
+
+
 def _grouped_legal_actions_section(request: DecisionRequest) -> str:
     """Render legal actions grouped by category instead of a flat list."""
     actions = _legal_actions_payload(request)
+
+    # Mechanically remove defensive actions repeated 4+ times in a row.
+    # The model ignores prompt warnings about repetition, so we remove the
+    # option entirely to force it to pick something else.
+    banned_action = _detect_repeated_action(request)
+    if banned_action:
+        actions = [a for a in actions if a.get("action") != banned_action]
+
     groups: dict[str, list[JsonObject]] = {}
     for action in actions:
         cat = str(action.get("category", "other"))
