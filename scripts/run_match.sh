@@ -293,6 +293,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Record start time so we only look for run dirs created after this point
+MATCH_START_EPOCH=$(date +%s)
+
 uv run --project daemon yomi-daemon "${DAEMON_ARGS[@]}" &
 DAEMON_PID=$!
 
@@ -351,9 +354,17 @@ while true; do
         break
     fi
 
-    # Look for a result.json in the most recent run dir
-    LATEST_RUN=$(ls -td runs/*/ 2>/dev/null | head -1)
-    if [ -n "$LATEST_RUN" ] && [ -f "${LATEST_RUN}result.json" ]; then
+    # Look for a result.json in a run dir created AFTER this script started
+    LATEST_RUN=""
+    for d in $(ls -td runs/*/ 2>/dev/null); do
+        dir_epoch=$(stat -f %m "$d" 2>/dev/null || stat -c %Y "$d" 2>/dev/null || echo 0)
+        if [ "$dir_epoch" -ge "$MATCH_START_EPOCH" ]; then
+            LATEST_RUN="$d"
+            break
+        fi
+    done
+    if [ -n "$LATEST_RUN" ] && [ -f "${LATEST_RUN}result.json" ] && \
+       python3 -c "import json,sys; r=json.load(open(sys.argv[1])); sys.exit(0 if r.get('status')=='completed' else 1)" "${LATEST_RUN}result.json" 2>/dev/null; then
         RESULT_FILE="${LATEST_RUN}result.json"
         # Result found — wait for replay video (up to 3 min for recording + pull)
         log "Match result found, waiting for replay recording..."
