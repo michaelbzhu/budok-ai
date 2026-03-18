@@ -357,15 +357,46 @@ def _range_guidance(request: DecisionRequest, h_distance: float) -> str:
     if not in_range and not out_of_range:
         return ""
 
+    # Find available movement options from the legal action set
+    move_options = _available_movement_labels(request)
+    move_hint = f" Use {', '.join(move_options)}." if move_options else ""
+
     parts: list[str] = []
     if out_of_range and h_distance > 100:
         parts.append(
             f"**OUT OF RANGE** at {int(h_distance)} units: {', '.join(out_of_range[:6])}. "
-            f"These attacks will whiff — close distance first or use longer-range moves."
+            f"These will whiff — close distance first.{move_hint}"
         )
     if in_range:
         parts.append(f"In range: {', '.join(in_range[:8])}")
+    if not in_range and out_of_range:
+        parts.append(
+            f"**NO attacks in range.** You must use movement to close distance.{move_hint}"
+        )
     return "- " + " | ".join(parts) if parts else ""
+
+
+_MOVEMENT_ACTIONS = frozenset(
+    {
+        "DashForward",
+        "DashBackward",
+        "Dash",
+        "ChargeDash",
+        "Jump",
+        "SuperJump",
+        "DoubleJump",
+        "Fall",
+    }
+)
+
+
+def _available_movement_labels(request: DecisionRequest) -> list[str]:
+    """Return the labels of movement actions currently available in the legal set."""
+    labels = []
+    for action in request.legal_actions:
+        if action.action in _MOVEMENT_ACTIONS:
+            labels.append(action.label or action.action)
+    return labels
 
 
 def _tactical_cheat_sheet(request: DecisionRequest) -> str:
@@ -464,6 +495,7 @@ def _tactical_cheat_sheet(request: DecisionRequest) -> str:
     if recent_outcomes:
         hit_count = sum(1 for o in recent_outcomes if o == "hit" and o != "")
         blocked_count = sum(1 for o in recent_outcomes if o in ("blocked", "clashed"))
+        neutral_count = sum(1 for o in recent_outcomes if o == "neutral")
         if hit_count >= 2:
             lines.append(
                 "- Your attacks are LANDING — keep up the pressure but stay unpredictable."
@@ -471,6 +503,14 @@ def _tactical_cheat_sheet(request: DecisionRequest) -> str:
         elif blocked_count >= 2:
             lines.append(
                 "- Your attacks are being BLOCKED — switch to grabs or try a different timing."
+            )
+        elif neutral_count >= 2 and h_distance > 100:
+            move_opts = _available_movement_labels(request)
+            move_hint = f" Use {', '.join(move_opts)}." if move_opts else ""
+            lines.append(
+                "- Your recent attacks are WHIFFING (neutral outcome at range). "
+                f"**Stop attacking from this distance.** Close distance first, "
+                f"THEN attack when in range.{move_hint}"
             )
 
     if len(lines) <= 1:
@@ -485,58 +525,70 @@ _CHARACTER_GUIDES: dict[str, str] = {
         "## Character Guide: Wizard\n"
         "Wizard is a **zoner/spellcaster** — your goal is to control space with projectiles "
         "and spells, NOT to sit and block.\n"
-        "- **At close range**: use TomeSlap (fastest attack), ManaStrike, Kick, or VileClutch/Grab "
-        "to punish. Do NOT just parry — parrying repeatedly is the #1 mistake.\n"
-        "- **At mid range**: BoltOfMagma (high damage, multi-hit), IceSpikeGround, ConjureWeapon, "
-        "FlameWave are all strong options.\n"
-        "- **At long range**: MagicMissile (safe chip), FlameWave, ConjureStorm for area control. "
-        "Liftoff (Missile Form) is a fast dash-attack to close distance.\n"
-        "- **Key combos**: TomeSlap → ManaStrike at close range. BoltOfMagma for mid-range pressure. "
-        "Gust to push opponents away and create zoning space.\n"
-        "- **NEVER parry more than 2 turns in a row.** Wizard has excellent ranged attacks — USE THEM. "
-        "Blocking is a waste of Wizard's kit."
+        "- **At close range (<50 units)**: TomeSlap (h_reach 32, fastest), Kick, VileClutch/Grab. "
+        "Do NOT just parry — parrying repeatedly is the #1 mistake.\n"
+        "- **At mid range (50-120 units)**: BoltOfMagma (h_reach 75, high damage), IceSpikeGround "
+        "(h_reach 55), ConjureWeapon (h_reach 85). These are Wizard's best tools.\n"
+        "- **At long range (120+ units)**: MagicMissile (fullscreen projectile), FlameWave (h_reach 250 "
+        "projectile), ConjureStorm (h_reach 104). Wizard EXCELS here — use ranged spells.\n"
+        "- **Movement**: Walk Back to create zoning distance. If opponent closes in, "
+        "use Gust to push them away. Liftoff covers ~200 units as a dash-attack.\n"
+        "- **NEVER parry more than 2 turns in a row.** Wizard has the best ranged kit — USE IT.\n"
+        "- **WARNING**: ManaStrike has only 12 unit h_reach and HIGH commitment (long animation). "
+        "Avoid it unless point-blank. TomeSlap (32) is better at close range."
     ),
     "Cowboy": (
         "## Character Guide: Cowboy\n"
         "Cowboy is a **versatile all-rounder** with tools for every range.\n"
-        "- **At close range**: Pommel (fast), Grab, VSlash (high damage), 3Combo. "
-        "Mix attacks and grabs — don't be predictable.\n"
-        "- **At mid range**: Stinger, HSlash2, AnkleCutter. Cowboy's sword normals "
-        "are excellent here.\n"
-        "- **At long range**: Brandish → Shoot for fullscreen gun pressure. Lasso for "
-        "a long-range grab that beats blocking.\n"
-        "- **Defense**: SpotDodge and Foresight are strong defensive tools. Use them "
-        "proactively, not just as panic options.\n"
+        "- **At close range (<50 units)**: Pommel (h_reach 28, fast, safe), Grab (50), "
+        "VSlash (68, high damage), 3Combo (48). Mix attacks and grabs.\n"
+        "- **At mid range (50-110 units)**: HSlash2 (h_reach 109), Stinger (82 + lunge), "
+        "AnkleCutter (92). Cowboy's sword normals are excellent here.\n"
+        "- **At long range (110+ units)**: LightningSliceNeutral (h_reach 147, travels through air), "
+        "Brandish → Shoot (fullscreen gun), Lasso (250, long-range grab).\n"
+        "- **Movement**: When >150 units, use Walk Forward or Dash to close into sword range. "
+        "Super Dash covers big gaps with armor. Don't spam LightningSlice from fullscreen — "
+        "close distance and use higher-damage melee instead.\n"
+        "- **Defense**: SpotDodge (invuln frames 5-7, fast recovery) and Foresight are strong.\n"
         "- Cowboy wins by mixing all three ranges. Don't camp one distance."
     ),
     "Robot": (
         "## Character Guide: Robot\n"
         "Robot is a **grappler/heavyweight** — your goal is to get close and land devastating "
         "command grabs and heavy attacks.\n"
-        "- Use DashForward and movement to close distance, then Grab or command grabs.\n"
-        "- Robot's attacks are slow but hit HARD. Mix grabs with heavy attacks.\n"
-        "- Use armor moves to tank through opponent attacks when approaching."
+        "- **Closing distance is CRITICAL.** Most Robot attacks have short range. Use Walk Forward, "
+        "Dash, and Super Dash (armored — goes through single-hit attacks) to get in.\n"
+        "- **At close range**: Vacuum (h_reach 140 — Robot's best grab, great range for a grab), "
+        "Slap (85, fast poke), Blast (54, safe). Mix grabs with attacks.\n"
+        "- **At range**: EyeBeam (h_reach 80-200, long range), Missile/LOIC (fullscreen supers). "
+        "Use these to force the opponent to approach you.\n"
+        "- Robot's attacks are slow but hit HARD. Jump to approach over projectiles."
     ),
     "Ninja": (
         "## Character Guide: Ninja\n"
-        "Ninja is a **rushdown/mixup** character — your goal is to stay close and overwhelm "
-        "with fast attacks and mix-ups.\n"
-        "- Ninja has the fastest attacks in the game. Abuse speed advantage at close range.\n"
-        "- Use Shuriken at range to force approaches, then mix attack/grab/block at close range.\n"
-        "- Kunai and aerial moves give excellent air control."
+        "Ninja is a **rushdown/mixup** character — stay close and overwhelm with fast attacks.\n"
+        "- **Getting in**: Dash (projectile invuln frames 0-4, hops lows), SlideKick (travels ~150 "
+        "units along ground), DropKick (lunges ~150 units). Use Shuriken at range to force reactions.\n"
+        "- **At close range**: NunChukLight (h_reach 51, fast), GroundedPunch (33, fastest), "
+        "Uppercut (28, huge damage launcher), Grab. Mix attacks and grabs.\n"
+        "- **Key combos**: GroundedPunch → NunChukLight → Uppercut for big damage.\n"
+        "- **Movement**: Ninja's speed advantage only works up close. If far, use Dash or "
+        "Walk Forward to close in. GrapplingHook repositions from range. Don't throw short-range "
+        "attacks from mid range — they WILL whiff."
     ),
     "Mutant": (
         "## Character Guide: Mutant\n"
-        "Mutant is an **aggressive rushdown** character with acid damage-over-time — your goal is "
-        "to apply acid with AcidSlash variants and BiteGrab (Envenom), then pressure while DoT ticks.\n"
-        "- **At close range**: Swipe (fast, reliable), Sweep (high damage knockdown), BiteGrab "
-        "(Envenom applies poison DoT — grabs beat blocking). Mix Swipe/Grab unpredictably.\n"
-        "- **Approaching**: AcidSlashJ (Leap Slash, 10-hit, great approach tool), DashThroughAttack "
-        "(Sneak Attack — crosses up the opponent), WallTrick (Pounce — 7-hit combo).\n"
-        "- **At range**: CausticSpike (acid projectile), TwistAttack (Corkscrew, multi-hit).\n"
+        "Mutant is an **aggressive rushdown** character with acid damage-over-time.\n"
+        "- **Getting in**: AcidSlashJ (Leap Slash, travels ~150 units, 10-hit), "
+        "DashThroughAttack (Sneak Attack, dashes through opponent), WallTrick (Pounce, ~200 units). "
+        "Also use Dash/Walk Forward — Mutant NEEDS to be close.\n"
+        "- **At close range (<60 units)**: Swipe (h_reach 44, fast), Sweep (49, knockdown), "
+        "BiteGrab (40, applies poison DoT — grabs beat blocking). Mix Swipe/Grab unpredictably.\n"
+        "- **At range**: CausticSpike (250, acid projectile). Use to force opponent to approach.\n"
         "- **Key strategy**: Apply acid with AcidSlashH/BiteGrab, then stay aggressive. Acid DoT "
-        "does damage over time so every second of pressure counts. GroundToAirSpin (Shred, 9 hits) "
-        "for massive damage when you have the opening.\n"
+        "does damage over time so pressure counts. GroundToAirSpin (Shred, 9 hits) for big damage.\n"
+        "- **Movement is essential.** Most Mutant attacks are short range. If >60 units away, "
+        "close distance before attacking. Don't throw Swipe at 150 units — it will whiff.\n"
         "- Mutant is NOT a defensive character. Blocking wastes your speed advantage."
     ),
 }

@@ -23,10 +23,10 @@
     },
     "Roll": {
       "category": "defense",
-      "description": "Dodge roll \u2014 invincible movement. Direction payload is usually fixed.",
+      "description": "Dodge \u2014 invincible roll. Has invincibility frames that avoid all attacks. Good for escaping pressure or dodging predictable attacks. Direction is usually fixed.",
       "speed": "fast",
-      "beats": "attacks, projectiles, repositions",
-      "weakness": "vulnerable after invincibility ends, loses to delayed attacks"
+      "beats": "attacks (invincible frames), projectiles, repositions while safe.",
+      "weakness": "vulnerable after invincibility ends, loses to delayed attacks and grabs."
     },
     "Wait": {
       "category": "utility",
@@ -51,12 +51,12 @@
     },
     "Grab": {
       "category": "grab",
-      "description": "Standard throw \u2014 beats blocking, loses to attacks. Short range.",
+      "description": "Throw \u2014 beats blocking, loses to attacks. h_reach ~50 units. Must be close to opponent to connect. If opponent is out of range, close distance first with DashForward or Dash.",
       "speed": "medium",
       "damage": "medium",
-      "beats": "blocking opponents",
-      "weakness": "loses to attacks, very short range",
-      "h_reach": 50
+      "h_reach": 50,
+      "beats": "blocking opponents (grabs go through block).",
+      "weakness": "loses to attacks (any attack beats grab), very short range (~50 units). Will whiff if opponent is further than 50 units."
     },
     "AirGrab": {
       "category": "grab",
@@ -69,41 +69,45 @@
     },
     "DashForward": {
       "category": "movement",
-      "description": "Dash forward \u2014 close distance. Distance payload (0-100) controls how far.",
+      "description": "Walk Forward \u2014 close distance toward opponent. Distance payload (0-100) controls how far. Startup 2 ticks, actionable after ~10-15 ticks. Essential for getting into attack range when your moves can't reach.",
       "speed": "fast",
-      "beats": "closes gap for attacks/grabs",
-      "weakness": "vulnerable during dash, predictable if repeated"
+      "beats": "closes gap so your attacks can connect. Use when OUT OF RANGE for melee attacks. Walk into attack range, THEN attack next turn.",
+      "weakness": "vulnerable during movement, predictable if repeated. Opponent can anti-air or attack your approach."
     },
     "DashBackward": {
       "category": "movement",
-      "description": "Dash backward \u2014 create distance.",
+      "description": "Walk Back \u2014 retreat from opponent. Startup 2 ticks, actionable after ~11 ticks. Grab immune frames 1-7. Becomes inactionable if opponent uses forward movement.",
       "speed": "fast",
-      "beats": "escapes close-range pressure",
-      "weakness": "gives up stage position, can get cornered"
+      "beats": "escapes close-range pressure, grab immune early frames. Creates space for zoning.",
+      "weakness": "gives up stage position, can get cornered at stage edge. Inactionable if opponent dashes forward."
     },
     "Jump": {
       "category": "movement",
-      "description": "Jump \u2014 become airborne. JumpArc payload controls trajectory.",
+      "description": "Jump \u2014 become airborne. JumpArc payload controls trajectory (x: horizontal direction, y: height). Startup 2-5 ticks. Short jumps actionable in ~10 ticks, high jumps ~15. Avoids grabs and ground attacks. Enables aerial attacks on landing.",
       "speed": "fast",
-      "beats": "avoids ground attacks and grabs",
-      "weakness": "predictable landing, vulnerable to anti-airs"
+      "beats": "avoids ALL grabs and ground-only attacks. Repositions vertically. Use to approach over projectiles or escape grab pressure.",
+      "weakness": "predictable landing trajectory, vulnerable to anti-airs (UpwardSwipe). Aerial blocking is weaker than ground blocking (+2 block disadvantage)."
     },
     "DoubleJump": {
       "category": "movement",
-      "description": "Second jump while airborne.",
-      "speed": "fast"
+      "description": "Double Jump \u2014 second jump while airborne. Changes your air trajectory. Use to extend airtime, dodge anti-airs, or reposition in the air.",
+      "speed": "fast",
+      "beats": "dodges anti-airs by changing trajectory, extends air control.",
+      "weakness": "uses your air action, can't double jump again."
     },
     "SuperJump": {
       "category": "movement",
-      "description": "High/far jump. JumpArc payload controls arc.",
-      "speed": "fast"
+      "description": "Super Jump \u2014 high/far jump covering more distance than normal jump. JumpArc payload controls arc. Startup 5 ticks. Covers large horizontal and vertical distance. Use for big repositioning or escaping corner pressure.",
+      "speed": "fast",
+      "beats": "escapes pressure, covers large distance, avoids grabs and ground attacks.",
+      "weakness": "longer airtime makes landing predictable. Vulnerable to anti-airs."
     },
     "ChargeDash": {
       "category": "movement",
-      "description": "Super Dash \u2014 fast armored dash forward.",
-      "speed": "fast",
-      "beats": "goes through single-hit attacks",
-      "weakness": "loses to grabs and multi-hit moves"
+      "description": "Super Dash \u2014 armored dash forward, covers large distance. Startup 8 ticks, actionable after ~22 ticks. Goes through single-hit attacks. Best option for closing large distances (200+ units).",
+      "speed": "medium",
+      "beats": "goes through single-hit attacks (armor), covers the most ground of any movement. Use when FAR from opponent to close the gap.",
+      "weakness": "8 tick startup (slow), loses to grabs and multi-hit moves. Punishable if predicted."
     },
     "InstantCancel": {
       "category": "utility",
@@ -130,8 +134,10 @@
     },
     "Fall": {
       "category": "movement",
-      "description": "Fall from the air.",
-      "speed": "instant"
+      "description": "Fall \u2014 drop from the air quickly. Use to land faster and become actionable sooner instead of floating. Good after a whiffed air attack or to bait anti-airs.",
+      "speed": "instant",
+      "beats": "lands quickly to act sooner, baits anti-airs that expect you to stay airborne.",
+      "weakness": "predictable landing spot."
     },
     "Getup": {
       "category": "utility",
@@ -140,10 +146,10 @@
     },
     "TechRoll": {
       "category": "defense",
-      "description": "Tech roll on knockdown \u2014 dodge while getting up.",
+      "description": "Tech Dodge \u2014 invincible roll on knockdown. Use when knocked down to escape wakeup pressure. Repositions while invincible.",
       "speed": "medium",
-      "beats": "avoids wakeup pressure",
-      "weakness": "predictable direction, can be read"
+      "beats": "avoids wakeup pressure (meaties, grabs on your wakeup).",
+      "weakness": "direction is predictable, opponent can read and chase."
     },
     "ForwardDashFollowup": {
       "category": "offense",
@@ -153,6 +159,20 @@
       "beats": "blocking opponents at mid range",
       "weakness": "punishable on block if predicted",
       "h_reach": 80
+    },
+    "Dash": {
+      "category": "movement",
+      "description": "Dash \u2014 quick forward hop. Startup 1 tick (fastest movement option), actionable after ~10 ticks. Projectile invulnerable frames 0-4, hops over low attacks. Use to close distance quickly or dodge projectiles.",
+      "speed": "fast",
+      "beats": "projectiles (invuln frames 0-4), low attacks (hops over). Fastest way to close distance.",
+      "weakness": "short distance covered, loses to well-timed attacks."
+    },
+    "SpotDodge": {
+      "category": "defense",
+      "description": "Spot Dodge \u2014 stationary invincible dodge. Grab invulnerable frames 1-4, fully invulnerable frames 5-7, actionable at frame 11. Beats both attacks and grabs briefly. Very fast recovery allows punishing after dodging.",
+      "speed": "fast",
+      "beats": "avoids attacks AND grabs without moving. Fast recovery (11 ticks) lets you punish after dodging.",
+      "weakness": "loses to attacks that hit after frame 7 (delayed attacks, multi-hit moves). Short invulnerability window."
     }
   },
   "Cowboy": {
