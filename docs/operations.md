@@ -161,9 +161,62 @@ matches still retain pinned config, version, and seed metadata.
 
 `metrics.json` in each run directory tracks per-match latency statistics, fallback counts, and token usage. Use it to identify regressions after code changes.
 
-## Live local workflow
+## End-to-end match (macOS + OrbStack)
 
-Run a complete local match from mod packaging through artifact collection.
+`scripts/run_match.sh` automates the full match lifecycle on macOS with an OrbStack VM:
+
+```bash
+# Run with defaults (uses match.conf if present, else daemon/config/llm_v_llm.json)
+scripts/run_match.sh
+
+# Use a specific config
+scripts/run_match.sh my_match.conf
+
+# Override daemon config from CLI
+scripts/run_match.sh --daemon-config daemon/config/llm_first_test.json
+
+# Skip mod packaging/push (reuse mod already in VM — faster iteration)
+scripts/run_match.sh --skip-mod-push
+
+# Disable replay recording
+scripts/run_match.sh --no-replay
+
+# Preview what would happen
+scripts/run_match.sh --dry-run
+```
+
+The script handles everything:
+
+1. Kills stale game processes in the VM
+2. Ensures Xvfb is running
+3. Auto-detects the bridge IP from `ifconfig bridge100`
+4. Patches the mod config with the bridge IP, packages the zip, pushes to the VM, restores the config
+5. Starts the daemon with `--host 0.0.0.0`
+6. Launches the game in the VM
+7. Polls for match completion (checks `result.json` status)
+8. Waits for replay video capture
+9. Prints a formatted result summary
+10. Cleans up on exit/Ctrl+C
+
+### Configuration via `match.conf`
+
+Copy `match.conf.example` to `match.conf` and customize:
+
+```bash
+cp match.conf.example match.conf
+```
+
+Key settings: `VM_NAME`, `VM_GAME_DIR`, `DAEMON_CONFIG`, `BRIDGE_IP_MODE` (auto/manual), `RECORD_REPLAY`, `ENV_FILE`. See the example file for full documentation.
+
+### Prerequisites
+
+- `uv` and `orb` (OrbStack) installed
+- OrbStack amd64 VM with game installed (see `docs/macos.md` for one-time setup)
+- API keys in `.env` for provider-backed policies
+
+## Manual live match workflow
+
+For running matches without OrbStack (game running natively on Linux), use the individual scripts:
 
 ### 1. Package the mod
 
@@ -171,23 +224,17 @@ Run a complete local match from mod packaging through artifact collection.
 scripts/package_mod.sh
 ```
 
-This creates `dist/YomiLLMBridge.zip` containing the mod directory tree.
-
 ### 2. Install the mod
 
 ```bash
 scripts/install_mod.sh --game-dir /path/to/yomi-hustle
 ```
 
-Point `--game-dir` to the directory containing the YOMI Hustle executable. The script copies the mod zip into `<game-dir>/mods/` and extracts it.
-
 ### 3. Start a live match
 
 ```bash
 scripts/run_live_match.sh --game-dir /path/to/yomi-hustle
 ```
-
-This starts the daemon, verifies prerequisites, and waits for the game to connect. Launch YOMI Hustle with the mod loader enabled; the mod auto-connects to the daemon on `127.0.0.1:8765`.
 
 For provider-backed policies:
 
@@ -196,37 +243,9 @@ ANTHROPIC_API_KEY=sk-ant-... scripts/run_live_match.sh \
   --p1-policy anthropic/claude --p2-policy baseline/random
 ```
 
-When the match ends, the daemon writes artifacts to `runs/<timestamp>_<match_id>/` and prints a result summary.
-
 ### 4. Verify artifacts
 
-After a completed match, the run directory contains:
-
-- `manifest.json` — config snapshot and seed
-- `events.jsonl` — lifecycle events (MatchStarted, TurnRequested, DecisionReceived, etc.)
-- `decisions.jsonl` — per-turn request/response pairs
-- `prompts.jsonl` — prompt traces (when logging.prompts is enabled)
-- `metrics.json` — latency, fallback rate, token usage
-- `result.json` — winner, end reason, turn count, status
-- `replay_index.json` — per-turn pointers into decisions and prompts
-- `stderr.log` — error output
-
-### Prerequisites
-
-- `uv` installed
-- YOMI Hustle (Steam build `16151810`) installed locally
-- The game's mod loader must be set up to load mods from `<game-dir>/mods/`
-- For provider-backed policies, set the relevant API key environment variables (see `.env.example`)
-
-### Failure modes
-
-The workflow surfaces clear errors for:
-
-- Missing `uv`
-- Missing mod zip (run `scripts/package_mod.sh` first)
-- Invalid or missing game directory
-- Missing mod installation
-- Missing provider API keys
+After a completed match, the run directory contains all standard artifacts (see Artifact layout below).
 
 ## Reproducibility
 

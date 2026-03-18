@@ -456,6 +456,29 @@ Common video problems and their causes:
 
 ## Running an LLM match
 
+Use `scripts/run_match.sh` to automate the entire workflow:
+
+```bash
+scripts/run_match.sh
+```
+
+This single command handles bridge IP detection, mod packaging/push, Xvfb, process cleanup, daemon startup, game launch, match polling, replay capture, and result reporting. See `docs/operations.md` for full usage and options.
+
+For configuration, copy `match.conf.example` to `match.conf`:
+
+```bash
+cp match.conf.example match.conf
+# Edit VM_NAME, VM_GAME_DIR, DAEMON_CONFIG, etc.
+scripts/run_match.sh
+```
+
+### Manual steps (for reference)
+
+The ad-hoc manual steps are preserved below for debugging. Normal usage should prefer `scripts/run_match.sh`.
+
+<details>
+<summary>Manual match workflow</summary>
+
 ```bash
 # 1. Package and push mod with VM host IP baked in
 cd /path/to/yomi-ai
@@ -482,14 +505,9 @@ DISPLAY=:99 $HOME/games/yomi/YourOnlyMoveIsHUSTLE.x86_64
 '
 ```
 
-The daemon automatically shuts down after the match completes and the replay video is saved.
+**Important**: Kill ALL old game processes before starting a new match. Each `orb run` that launches the game creates a new process. Accumulated game processes consume ~800MB each and will exhaust VM memory.
 
-**Important**: Kill ALL old game processes before starting a new match. Each `orb run` that launches the game creates a new process. Accumulated game processes consume ~800MB each and will exhaust VM memory:
-
-```bash
-orb run -m ubuntu bash -c "ps aux | grep YourOnly | grep -v grep | awk '{print \$2}' | xargs -r kill -9"
-orb run -m ubuntu free -h  # verify memory is freed
-```
+</details>
 
 ## Known issues (resolved)
 

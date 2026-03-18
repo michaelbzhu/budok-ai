@@ -26,8 +26,9 @@ An alias map redirects legacy names: `reasoning_enabled_v1` resolves to `reasoni
 3. **Turn context** — a compact JSON block with `match_id`, `turn_id`, `player_id`, `deadline_ms`, `decision_type`. Null fields are stripped.
 4. **Situation summary** — a pre-computed tactical digest: player identity and character name, both fighters' HP, distance with range label (CLOSE/MID/FAR), current states, meter, and burst. When the player has repeated the same action 3+ turns in a row, a repetition warning is appended.
 5. **Tactical cheat sheet** — contextual suggestions based on opponent state (attacking → block, blocking → grab, grabbing → attack), opponent history patterns (repetition/alternation detection), and outcome feedback (attacks landing vs blocked). Only present when actionable suggestions exist.
-6. **Observation** — the serialized observation with compact history (last 5 entries with game_tick, actions, HP, HP deltas, and outcomes).
-7. **Legal actions** — grouped by category (Offense, Defense, Grab, Movement, Special, Super, Utility). Each action includes `description`, `category`, `speed`, `damage`, `range`, `beats`, `weakness` from the move catalog. Zero-range payload_specs and all-false supports flags are omitted.
+6. **Character guide** — per-character strategic guidance (Cowboy, Wizard, Robot, Ninja, Mutant). Explains the character's archetype, best moves at each range, key combos, and common mistakes. Only present when a guide exists for the active character.
+7. **Observation** — the serialized observation with compact history (last 5 entries with game_tick, actions, HP, HP deltas, and outcomes).
+8. **Legal actions** — grouped by category (Offense, Defense, Grab, Movement, Special, Super, Utility). Each action includes `description`, `category`, `speed`, `damage`, `range`, `beats`, `weakness` from the move catalog. Zero-range payload_specs and all-false supports flags are omitted. Defensive actions repeated 4+ turns in a row are mechanically removed (see below).
 
 ## Move Catalog
 
@@ -42,6 +43,28 @@ Each entry includes:
 - `stance_unlocks` (optional) — moves unlocked by entering this stance (e.g., Brandish unlocks Shoot2, PointBlank)
 
 During prompt rendering, `_legal_actions_payload()` resolves the active character name from the observation, looks up each legal action in the catalog (character-specific first, then universal), and injects the catalog metadata into the prompt.
+
+## Character Guides
+
+Per-character strategic guidance is defined in `_CHARACTER_GUIDES` in `prompt.py` and rendered as a "Character Guide" section when the active character has an entry. All five characters have guides:
+
+| Character | Archetype | Key guidance |
+|---|---|---|
+| Cowboy | Versatile all-rounder | Mix all three ranges, don't camp one distance |
+| Wizard | Zoner/spellcaster | Use projectiles and spells, never parry repeatedly |
+| Robot | Grappler/heavyweight | Close distance, land command grabs and heavy attacks |
+| Ninja | Rushdown/mixup | Stay close, overwhelm with fast attacks |
+| Mutant | Aggressive rushdown | Apply acid DoT, pressure while it ticks |
+
+The Wizard guide was added specifically to address a pattern where LLMs (especially Opus) would get stuck in a ParryAfterWhiff loop, ignoring Wizard's offensive toolkit.
+
+## Defensive Action Repetition Filter
+
+When a player repeats the same defensive action 4+ turns in a row, that action is mechanically removed from the legal actions list rendered in the prompt. This forces the model to pick a different option.
+
+Affected actions: `ParryHigh`, `ParryLow`, `ParrySuper`, `ParryAfterWhiff`, `Block`, `BlockHigh`, `BlockLow`.
+
+This was added because LLMs sometimes ignore prompt-level warnings about repetition (the situation summary already warns after 3+ consecutive uses). Removing the action entirely is more reliable than asking the model to stop using it.
 
 ## Response Parsing
 
