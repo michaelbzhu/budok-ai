@@ -444,22 +444,17 @@ func _attach_to_game(game, compatibility: Dictionary) -> void:
 
 
 func _apply_match_options() -> void:
-	var match_options = _config.get("match_options", {})
-	if not (match_options is Dictionary) or match_options.empty():
-		return
-
-	var starting_hp = match_options.get("starting_hp", null)
-	if starting_hp != null and int(starting_hp) > 0:
-		var hp_value = int(starting_hp)
-		for fighter in [_game.p1, _game.p2]:
-			fighter.MAX_HEALTH = hp_value
-			fighter.hp = hp_value
-		print("YomiLLMBridge applied starting_hp=%d to both fighters" % hp_value)
+	# Apply HP override via shared helper
+	_apply_match_options_to_game(_game)
 
 	# Scale the match timer to match the HP pool.
 	# Game defaults: MAX_HEALTH=1500, game.time=3000 (2 ticks per HP).
 	# Observed: baseline matches use ~1.9 ticks/HP, LLM matches use ~2.5 ticks/HP.
 	# We use 3 ticks per HP for a comfortable margin that avoids timeouts.
+	var match_options = _config.get("match_options", {})
+	if not (match_options is Dictionary) or match_options.empty():
+		return
+	var starting_hp = match_options.get("starting_hp", null)
 	var match_time = match_options.get("match_time", null)
 	if match_time != null and int(match_time) > 0:
 		_game.time = int(match_time)
@@ -468,6 +463,24 @@ func _apply_match_options() -> void:
 		var auto_time = int(starting_hp) * 3
 		_game.time = auto_time
 		print("YomiLLMBridge auto-scaled match_time=%d ticks for starting_hp=%d" % [auto_time, int(starting_hp)])
+
+
+func _apply_match_options_to_game(game) -> void:
+	"""Apply match option overrides (HP, timer) to any game instance.
+	Used for both the live match and the replay game."""
+	if game == null:
+		return
+	var match_options = _config.get("match_options", {})
+	if not (match_options is Dictionary) or match_options.empty():
+		return
+
+	var starting_hp = match_options.get("starting_hp", null)
+	if starting_hp != null and int(starting_hp) > 0:
+		var hp_value = int(starting_hp)
+		for fighter in [game.p1, game.p2]:
+			fighter.MAX_HEALTH = hp_value
+			fighter.hp = hp_value
+		print("YomiLLMBridge applied starting_hp=%d to game instance" % hp_value)
 
 
 func _publish_compatibility_failure(compatibility: Dictionary) -> void:
@@ -669,6 +682,14 @@ func _monitor_replay_lifecycle() -> void:
 		_replay_recording = true
 		_replay_game = Global.current_game
 		print("YomiLLMBridge replay game instance detected")
+
+		# Apply HP override to the replay game so damage matches the live match.
+		# The game creates replay fighters with default MAX_HEALTH=1500, but
+		# the live match may have used a different starting_hp (e.g. 750).
+		# Without this, the replay diverges: same attacks deal the same raw
+		# damage but against 2x HP, so the KO never happens and the replay
+		# freezes when it runs out of recorded actions.
+		_apply_match_options_to_game(_replay_game)
 
 	elif _replay_recording:
 		# Monitor for replay end

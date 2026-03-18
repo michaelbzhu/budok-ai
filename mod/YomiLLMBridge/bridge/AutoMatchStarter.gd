@@ -211,6 +211,12 @@ func _build_match_data(characters: Dictionary, config: Dictionary, policy_mappin
 			var starting_hp = match_options.get("starting_hp", null)
 			if starting_hp != null and int(starting_hp) > 0:
 				data["game_length"] = int(starting_hp) * 3
+		# Store starting_hp in match_data so it's persisted in the .replay file.
+		# The game doesn't read this natively, but the mod applies it to both
+		# the live game and replay game instances via _apply_match_options_to_game().
+		var hp = match_options.get("starting_hp", null)
+		if hp != null and int(hp) > 0:
+			data["starting_hp"] = int(hp)
 	return data
 
 
