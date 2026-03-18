@@ -402,6 +402,19 @@ _CHARACTER_GUIDES: dict[str, str] = {
         "- **NEVER parry more than 2 turns in a row.** Wizard has excellent ranged attacks — USE THEM. "
         "Blocking is a waste of Wizard's kit."
     ),
+    "Cowboy": (
+        "## Character Guide: Cowboy\n"
+        "Cowboy is a **versatile all-rounder** with tools for every range.\n"
+        "- **At close range**: Pommel (fast), Grab, VSlash (high damage), 3Combo. "
+        "Mix attacks and grabs — don't be predictable.\n"
+        "- **At mid range**: Stinger, HSlash2, AnkleCutter. Cowboy's sword normals "
+        "are excellent here.\n"
+        "- **At long range**: Brandish → Shoot for fullscreen gun pressure. Lasso for "
+        "a long-range grab that beats blocking.\n"
+        "- **Defense**: SpotDodge and Foresight are strong defensive tools. Use them "
+        "proactively, not just as panic options.\n"
+        "- Cowboy wins by mixing all three ranges. Don't camp one distance."
+    ),
     "Robot": (
         "## Character Guide: Robot\n"
         "Robot is a **grappler/heavyweight** — your goal is to get close and land devastating "
@@ -417,6 +430,20 @@ _CHARACTER_GUIDES: dict[str, str] = {
         "- Ninja has the fastest attacks in the game. Abuse speed advantage at close range.\n"
         "- Use Shuriken at range to force approaches, then mix attack/grab/block at close range.\n"
         "- Kunai and aerial moves give excellent air control."
+    ),
+    "Mutant": (
+        "## Character Guide: Mutant\n"
+        "Mutant is an **aggressive rushdown** character with acid damage-over-time — your goal is "
+        "to apply acid with AcidSlash variants and BiteGrab (Envenom), then pressure while DoT ticks.\n"
+        "- **At close range**: Swipe (fast, reliable), Sweep (high damage knockdown), BiteGrab "
+        "(Envenom applies poison DoT — grabs beat blocking). Mix Swipe/Grab unpredictably.\n"
+        "- **Approaching**: AcidSlashJ (Leap Slash, 10-hit, great approach tool), DashThroughAttack "
+        "(Sneak Attack — crosses up the opponent), WallTrick (Pounce — 7-hit combo).\n"
+        "- **At range**: CausticSpike (acid projectile), TwistAttack (Corkscrew, multi-hit).\n"
+        "- **Key strategy**: Apply acid with AcidSlashH/BiteGrab, then stay aggressive. Acid DoT "
+        "does damage over time so every second of pressure counts. GroundToAirSpin (Shred, 9 hits) "
+        "for massive damage when you have the opening.\n"
+        "- Mutant is NOT a defensive character. Blocking wastes your speed advantage."
     ),
 }
 
