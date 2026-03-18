@@ -65,6 +65,7 @@ class CharacterSelectionMode(StrEnum):
     MIRROR = "mirror"
     ASSIGNED = "assigned"
     RANDOM_FROM_POOL = "random_from_pool"
+    LLM_CHOICE = "llm_choice"
 
 
 class PlayerSlot(StrEnum):

@@ -110,7 +110,7 @@
       "properties": {
         "mode": {
           "type": "string",
-          "enum": ["mirror", "assigned", "random_from_pool"]
+          "enum": ["mirror", "assigned", "random_from_pool", "llm_choice"]
         },
         "assignments": {
           "type": "object",

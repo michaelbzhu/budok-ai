@@ -14,7 +14,9 @@ from yomi_daemon.validation import REPO_ROOT
 
 PROMPTS_DIR = REPO_ROOT / "prompts"
 MOVE_CATALOG_PATH = PROMPTS_DIR / "move_catalog.json"
+CHARACTER_SELECT_TEMPLATE = PROMPTS_DIR / "character_select_v1.md"
 DEFAULT_PROMPT_VERSION = "minimal_v1"
+VALID_CHARACTERS = ("Ninja", "Cowboy", "Wizard", "Robot", "Mutant")
 PROMPT_VERSION_ALIASES = {
     "reasoning_enabled_v1": "reasoning_v1",
 }
@@ -155,7 +157,72 @@ def decision_output_json_schema() -> JsonObject:
 
 
 def available_prompt_versions() -> tuple[str, ...]:
-    return tuple(path.stem for path in sorted(PROMPTS_DIR.glob("*.md")))
+    return tuple(
+        path.stem
+        for path in sorted(PROMPTS_DIR.glob("*.md"))
+        if not path.stem.startswith("character_select")
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class MatchHistoryEntry:
+    """A single past match result for tournament character selection context."""
+
+    your_character: str
+    opponent_character: str
+    result: str  # "win", "loss", or "draw"
+    your_final_hp: int
+    opponent_final_hp: int
+
+
+def render_character_select_prompt(
+    *,
+    player_id: str,
+    opponent_policy_id: str | None = None,
+    match_history: list[MatchHistoryEntry] | None = None,
+) -> str:
+    """Render the character selection prompt, optionally with tournament history."""
+    if not CHARACTER_SELECT_TEMPLATE.is_file():
+        raise PromptTemplateError(
+            f"character select template not found at {CHARACTER_SELECT_TEMPLATE}"
+        )
+
+    sections = [CHARACTER_SELECT_TEMPLATE.read_text(encoding="utf-8").strip()]
+
+    if match_history:
+        history_lines = ["\n## Tournament Match History"]
+        if opponent_policy_id:
+            history_lines.append(f"Your past results against **{opponent_policy_id}**:")
+        for i, entry in enumerate(match_history, 1):
+            history_lines.append(
+                f"- Match {i}: You picked **{entry.your_character}**, "
+                f"opponent picked **{entry.opponent_character}**. "
+                f"{'You won' if entry.result == 'win' else 'You lost' if entry.result == 'loss' else 'Draw'} "
+                f"({entry.your_final_hp} HP remaining vs {entry.opponent_final_hp} HP)."
+            )
+        sections.append("\n".join(history_lines))
+
+    return "\n\n".join(sections).strip() + "\n"
+
+
+def character_select_output_json_schema() -> JsonObject:
+    """JSON schema for character selection structured output."""
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["reasoning", "character"],
+        "properties": {
+            "reasoning": {
+                "type": "string",
+                "description": "Strategic reasoning for the character choice.",
+            },
+            "character": {
+                "type": "string",
+                "enum": list(VALID_CHARACTERS),
+                "description": "The chosen character name.",
+            },
+        },
+    }
 
 
 def _variant_for_prompt_version(prompt_version: str) -> PromptTemplateVariant:

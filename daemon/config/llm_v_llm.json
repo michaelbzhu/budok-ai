@@ -13,7 +13,7 @@
   },
   "policy_mapping": {
     "p1": "anthropic/claude-sonnet",
-    "p2": "anthropic/claude-sonnet"
+    "p2": "anthropic/claude-opus"
   },
   "policies": {
     "anthropic/claude-sonnet": {
@@ -29,15 +29,28 @@
           "max_correction_retries": 1
         }
       }
+    },
+    "anthropic/claude-opus": {
+      "provider": "anthropic",
+      "model": "claude-opus-4-6",
+      "prompt_version": "strategic_v1",
+      "credential_env_var": "ANTHROPIC_API_KEY",
+      "temperature": 0.7,
+      "max_tokens": 512,
+      "options": {
+        "response_parser": {
+          "enable_correction_retry": true,
+          "max_correction_retries": 1
+        }
+      }
     }
   },
   "character_selection": {
-    "mode": "assigned",
-    "assignments": {"p1": "Cowboy", "p2": "Cowboy"}
+    "mode": "llm_choice"
   },
   "trace_seed": 1,
   "stage_id": "training_room",
   "match_options": {
-    "starting_hp": 1500
+    "starting_hp": 750
   }
 }

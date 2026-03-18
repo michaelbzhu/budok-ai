@@ -19,12 +19,14 @@ from yomi_daemon.protocol import (
 )
 from yomi_daemon.validation import parse_envelope
 
-from tests.daemon.test_match_orchestration import (
-    _baseline_runtime_config,
-    _handshake,
-    _match_ended_envelope,
+from tests.daemon.conftest import (
+    baseline_runtime_config as _baseline_runtime_config,
+    handshake as _handshake,
+    match_ended_envelope as _match_ended_envelope,
     running_match_server,
 )
+
+_INTEGRATION = True
 
 
 def _unique_match_id() -> str:
@@ -180,51 +182,6 @@ def test_seeded_baseline_runs_produce_identical_decisions(tmp_path: Path) -> Non
         with patch("yomi_daemon.storage.writer.RUNS_DIR", run2_dir):
             run2 = await _run_seeded_match(seed=42, match_id=mid, turns=10)
         assert run1 == run2, f"Expected identical sequences, got {run1} vs {run2}"
-
-    asyncio.run(scenario())
-
-
-def test_decision_logs_identical_across_runs(tmp_path: Path) -> None:
-    """Decisions from two identical seeded runs should match (minus timestamps)."""
-
-    async def run_and_collect(mid: str) -> list[dict[str, Any]]:
-        config = _baseline_runtime_config(trace_seed=42)
-        records: list[dict[str, Any]] = []
-        async with running_match_server(config) as server:
-            async with connect(f"ws://127.0.0.1:{server.listening_port}") as ws:
-                await _handshake(ws)
-                for turn in range(1, 6):
-                    req = _decision_request_envelope(
-                        match_id=mid, turn_id=turn, player_id="p1"
-                    )
-                    await ws.send(json.dumps(req))
-                    raw = await ws.recv()
-                    resp = parse_envelope(json.loads(raw))
-                    decision = cast(ActionDecision, resp.payload)
-                    records.append(
-                        {
-                            "turn_id": decision.turn_id,
-                            "action": decision.action,
-                            "policy_id": decision.policy_id,
-                        }
-                    )
-                await ws.send(
-                    json.dumps(_match_ended_envelope(match_id=mid, total_turns=5))
-                )
-        return records
-
-    async def scenario() -> None:
-        mid = _unique_match_id()
-        run1_dir = tmp_path / "run1"
-        run1_dir.mkdir()
-        run2_dir = tmp_path / "run2"
-        run2_dir.mkdir()
-
-        with patch("yomi_daemon.storage.writer.RUNS_DIR", run1_dir):
-            run1 = await run_and_collect(mid)
-        with patch("yomi_daemon.storage.writer.RUNS_DIR", run2_dir):
-            run2 = await run_and_collect(mid)
-        assert run1 == run2
 
     asyncio.run(scenario())
 

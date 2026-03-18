@@ -74,6 +74,37 @@ Key `tournament` fields in the daemon config:
 | `mirror_matches_first` | `true` | Schedule self-play before cross-policy matches |
 | `fixed_stage` | `training_room` | Lock stage for all matches |
 
+## Character selection
+
+The `character_selection.mode` config field controls how characters are assigned:
+
+| Mode | Description |
+|---|---|
+| `mirror` | Both players get the same random character (default) |
+| `assigned` | Characters set explicitly via `assignments.p1` / `assignments.p2` |
+| `random_from_pool` | Random pick from `pool` list |
+| `llm_choice` | Each LLM chooses its own character via a dedicated prompt |
+
+### LLM character choice
+
+When `mode` is `llm_choice`, the daemon prompts each provider-backed policy to select a character before the match starts. Both players choose simultaneously (blind pick). Baseline policies fall back to seeded random selection.
+
+The character selection prompt (`prompts/character_select_v1.md`) describes each character's archetype, strengths, weaknesses, and key moves. The LLM returns structured output with reasoning and a character name.
+
+In tournament context, the prompt includes past match results against the current opponent (character picks, win/loss, final HP) so the LLM can adapt its character choice across a series.
+
+Example config:
+
+```json
+{
+  "character_selection": {
+    "mode": "llm_choice"
+  }
+}
+```
+
+The mod receives concrete character assignments (as if mode were `assigned`) — no mod-side changes are needed.
+
 ## Analyzing results
 
 ### Artifact directory

@@ -16,12 +16,15 @@ from websockets.exceptions import ConnectionClosed
 
 from yomi_daemon import __version__
 from yomi_daemon.adapters.base import PolicyAdapter, build_player_policy_adapters
+from yomi_daemon.character_selection import resolve_character_assignments
 from yomi_daemon.ids import SessionIdGenerator
 from yomi_daemon.manifest import build_match_manifest
 from yomi_daemon.match import MatchSession
 from yomi_daemon.orchestrator import resolve_adapter_decision
 from yomi_daemon.protocol import (
     ActionDecision,
+    CharacterSelectionConfig,
+    CharacterSelectionMode,
     ConfigPayload,
     CURRENT_SCHEMA_VERSION,
     DecisionRequest,
@@ -670,6 +673,34 @@ class DaemonServer:
             )
             raise HandshakeRejectedError("unsupported schema version")
 
+        # Resolve LLM character selection before building session
+        config_snapshot = self.runtime_config.config_snapshot
+        if (
+            self._runtime_config is not None
+            and self._runtime_config.character_selection.mode is CharacterSelectionMode.LLM_CHOICE
+        ):
+            self.logger.info("Resolving LLM character choices for session %s...", session_id)
+            assignments = await resolve_character_assignments(self._runtime_config)
+            # Replace character_selection in config snapshot with concrete assignments
+            if config_snapshot is not None:
+                config_snapshot = ConfigPayload(
+                    decision_timeout_ms=config_snapshot.decision_timeout_ms,
+                    fallback_mode=config_snapshot.fallback_mode,
+                    logging=config_snapshot.logging,
+                    policy_mapping=config_snapshot.policy_mapping,
+                    character_selection=CharacterSelectionConfig(
+                        mode=CharacterSelectionMode.ASSIGNED,
+                        assignments=assignments,
+                    ),
+                    stage_id=config_snapshot.stage_id,
+                    match_options=config_snapshot.match_options,
+                )
+            self.logger.info(
+                "Character selection resolved: P1=%s, P2=%s",
+                assignments.p1,
+                assignments.p2,
+            )
+
         session = MatchSession.from_hello(
             session_id=session_id,
             remote_address=remote_address,
@@ -677,7 +708,7 @@ class DaemonServer:
             accepted_protocol_version=accepted_version,
             daemon_version=__version__,
             policy_mapping=self.runtime_config.policy_mapping,
-            config_snapshot=self.runtime_config.config_snapshot,
+            config_snapshot=config_snapshot,
         )
         await connection.send(json.dumps(self._build_hello_ack_envelope(session).to_dict()))
         return session

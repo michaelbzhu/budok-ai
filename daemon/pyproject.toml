@@ -35,3 +35,6 @@ target-version = "py312"
 
 [tool.pytest.ini_options]
 addopts = "-ra"
+markers = [
+  "integration: tests that spin up a real WebSocket server (deselect with -m 'not integration')",
+]
