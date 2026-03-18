@@ -217,6 +217,10 @@ class DaemonServer:
 
         # Per-player last valid decision tracking for LAST_VALID_REPLAYABLE fallback
         last_valid: dict[str, ActionDecision] = {}
+        # Dedup: the game may fire player_actionable multiple times per tick,
+        # causing the mod to send duplicate decision_requests for the same
+        # (player_id, state_hash) pair.  Skip duplicates to avoid wasted LLM calls.
+        seen_requests: set[tuple[str, str]] = set()
         pending_decisions: set[asyncio.Task[None]] = set()
         errors: list[str] = []
         match_ended_payload: MatchEnded | None = None
@@ -285,6 +289,21 @@ class DaemonServer:
                                 },
                             ).to_dict()
                         )
+
+                    # Dedup: skip if we've already dispatched for this
+                    # (player_id, state_hash).  The mod may fire the same
+                    # request twice when the game emits player_actionable
+                    # multiple times per tick.
+                    dedup_key = (request.player_id, request.state_hash)
+                    if dedup_key in seen_requests:
+                        self.logger.debug(
+                            "Session %s: skipping duplicate request for %s state=%s",
+                            session.session_id,
+                            request.player_id,
+                            request.state_hash[:12],
+                        )
+                        continue
+                    seen_requests.add(dedup_key)
 
                     # Fire off decision requests concurrently so both
                     # players' LLM calls run in parallel.

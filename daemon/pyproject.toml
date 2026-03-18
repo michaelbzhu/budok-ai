@@ -13,11 +13,13 @@ dependencies = [
   "jsonschema>=4.23.0",
   "openai>=2.26.0",
   "websockets>=15.0.1",
+  "textual>=3.0.0",
 ]
 
 [project.scripts]
 yomi-daemon = "yomi_daemon.cli:main"
 yomi-daemon-check-uv = "yomi_daemon.tooling:main"
+yomi-tui = "yomi_daemon.tui:main"
 
 [dependency-groups]
 dev = [

@@ -117,6 +117,13 @@ func _on_player_actionable() -> void:
 
 	var actionable_players = _get_actionable_players()
 	for player_id in actionable_players:
+		# Guard: skip if we already have a pending request for this player.
+		# The game fires player_actionable multiple times per tick; without
+		# this check each signal causes a separate LLM API call for the same
+		# game state, wasting tokens and time.
+		if _has_pending_for_player(player_id):
+			continue
+
 		var fighter = _game.p1 if player_id == "p1" else _game.p2
 		var action_buttons = _find_action_buttons(player_id)
 		if action_buttons == null:
@@ -378,6 +385,14 @@ func _pending_key(player_id: String, turn_id: int) -> String:
 func _clear_pending(pending_key: String) -> void:
 	_pending_requests.erase(pending_key)
 	_pending_timestamps.erase(pending_key)
+
+
+func _has_pending_for_player(player_id: String) -> bool:
+	"""Return true if there is already an outstanding decision request for this player."""
+	for key in _pending_requests:
+		if str(key).begins_with(player_id + "_"):
+			return true
+	return false
 
 
 func _get_actionable_players() -> Array:
