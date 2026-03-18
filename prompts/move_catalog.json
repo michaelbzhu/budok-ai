@@ -240,13 +240,13 @@
     },
     "Stinger": {
       "category": "offense",
-      "description": "Stinger \u2014 forward lunge stab, long reach, high damage. Best mid-range poke. NOTE: fighter lunges forward ~100 units during attack, so effective range is much larger than hitbox.",
+      "description": "Stinger \u2014 forward lunge stab. Hitbox 82 + lunges forward ~60 units. Effective range ~140 units. Best mid-range poke but punishable on whiff.",
       "speed": "medium",
       "damage": "high",
       "range": "long",
       "beats": "opponents at mid range, good punish tool",
       "weakness": "very punishable on block or whiff, committed lunge",
-      "h_reach": 82,
+      "h_reach": 140,
       "startup_ticks": 11,
       "active_ticks": 2,
       "total_damage": 120
@@ -463,13 +463,13 @@
     },
     "LightningSlice": {
       "category": "offense",
-      "description": "Lightning Slice \u2014 tracking aerial slash, directional aim. NOTE: fighter dashes through air during attack, so effective range is much larger than hitbox.",
+      "description": "Lightning Slice \u2014 directional aerial slash, dashes 120 units. Effective range ~250 units. Loses to blocking, punishable on whiff.",
       "speed": "fast",
       "damage": "high",
       "range": "long",
       "beats": "opponents in the air, good at range",
       "weakness": "loses to blocking, punishable on whiff, airborne so vulnerable to anti-airs",
-      "h_reach": 147,
+      "h_reach": 250,
       "commitment": "medium",
       "v_range": [
         -35,
@@ -481,13 +481,13 @@
     },
     "LightningSliceNeutral": {
       "category": "offense",
-      "description": "Lightning Slice neutral \u2014 fast ranged attack. NOTE: fighter dashes through air during attack, so effective range is much larger than hitbox.",
+      "description": "Lightning Slice neutral \u2014 dashes 120 units through air then slashes. Effective range ~250 units total (120 travel + 147 hitbox). Will NOT reach at 300+ units.",
       "speed": "fast",
       "damage": "high",
       "range": "long",
       "beats": "opponents at range without blocking",
       "weakness": "loses to blocking and parry, punishable on whiff, predictable if overused",
-      "h_reach": 147,
+      "h_reach": 250,
       "commitment": "medium",
       "v_range": [
         -35,
@@ -499,13 +499,13 @@
     },
     "LightningSliceCancel": {
       "category": "offense",
-      "description": "Lightning Slice cancel \u2014 faster recovery, less damage.",
+      "description": "Lightning Slice cancel \u2014 dashes 120 units, faster recovery, less damage. Effective range ~250 units.",
       "speed": "fast",
       "damage": "low",
       "range": "long",
       "beats": "safe chip at range",
       "weakness": "low damage, still loses to blocking",
-      "h_reach": 148,
+      "h_reach": 250,
       "v_range": [
         -36,
         4
@@ -547,11 +547,11 @@
     },
     "ImpaleTeleport": {
       "category": "offense",
-      "description": "Teleport Impale variant \u2014 teleports behind opponent. NOTE: teleports to opponent, so effective range is much larger than hitbox.",
+      "description": "Teleport Impale variant \u2014 teleports behind opponent regardless of distance.",
       "speed": "medium",
       "damage": "low",
       "range": "long",
-      "h_reach": 58,
+      "h_reach": 500,
       "startup_ticks": 13,
       "active_ticks": 4,
       "total_damage": 30
@@ -830,13 +830,13 @@
     },
     "DropKick": {
       "category": "offense",
-      "description": "Drop Kick \u2014 running forward kick, great range. NOTE: fighter lunges forward ~150 units, so effective range is much larger than hitbox.",
+      "description": "Drop Kick \u2014 running forward kick. Hitbox 36 + travels ~120 units forward. Effective range ~150 units. Very punishable on block.",
       "speed": "medium",
       "damage": "high",
       "range": "long",
       "beats": "opponents at mid-long range",
       "weakness": "very punishable on block, committed forward movement",
-      "h_reach": 36,
+      "h_reach": 150,
       "commitment": "medium",
       "startup_ticks": 11,
       "active_ticks": 5,
@@ -900,24 +900,24 @@
     },
     "SlideKick": {
       "category": "offense",
-      "description": "Slide Kick \u2014 sliding low multi-hit, goes under projectiles. NOTE: fighter slides forward ~150 units, so effective range is much larger than hitbox.",
+      "description": "Slide Kick \u2014 slides along ground ~120 units. Effective range ~150 units. Goes under projectiles.",
       "speed": "fast",
       "damage": "medium",
       "range": "long",
       "beats": "projectiles (slides under), standing opponents",
       "weakness": "loses to blocking low, punishable on block",
-      "h_reach": 34,
+      "h_reach": 150,
       "startup_ticks": 7,
       "active_ticks": 8,
       "total_damage": 70
     },
     "SlideKickAir": {
       "category": "offense",
-      "description": "Aerial Slide Kick. NOTE: fighter slides forward ~150 units, so effective range is much larger than hitbox.",
+      "description": "Aerial Slide Kick \u2014 slides forward ~120 units from air.",
       "speed": "fast",
       "damage": "medium",
       "range": "long",
-      "h_reach": 34,
+      "h_reach": 150,
       "startup_ticks": 7,
       "active_ticks": 8,
       "total_damage": 70
@@ -1644,7 +1644,7 @@
     },
     "ManaStrike": {
       "category": "offense",
-      "description": "Mana Strike \u2014 mana punch, works air/ground.",
+      "description": "Mana Strike \u2014 very short range mana punch (h_reach 12 only!). HIGH commitment: long animation locks you for 30+ ticks. Avoid unless point-blank (<20 units). TomeSlap (h_reach 32) is almost always better.",
       "speed": "fast",
       "damage": "medium",
       "range": "short",
@@ -1802,13 +1802,13 @@
     },
     "Liftoff": {
       "category": "special",
-      "description": "Missile Form \u2014 dash attack, high speed. NOTE: fighter dashes forward ~200 units, so effective range is much larger than hitbox.",
+      "description": "Missile Form \u2014 dash attack covering ~200 units. Effective range ~215 units. Fast approach but loses to blocking.",
       "speed": "fast",
       "damage": "high",
       "range": "long",
       "beats": "fast approach, covers distance while attacking",
       "weakness": "loses to blocking, committed movement",
-      "h_reach": 15,
+      "h_reach": 215,
       "v_range": [
         -28,
         15
@@ -2160,13 +2160,13 @@
     },
     "AcidSlashJ": {
       "category": "special",
-      "description": "Leap Slash \u2014 leaping acid slash, 10-hit pattern. Great approach. NOTE: fighter leaps forward ~150 units, so effective range is much larger than hitbox.",
+      "description": "Leap Slash \u2014 leaping acid slash covering ~150 units, 10-hit. Effective range ~200 units. Great approach tool but committed.",
       "speed": "medium",
       "damage": "high",
       "range": "long",
       "beats": "covers distance while attacking, multi-hit",
       "weakness": "committed, punishable on block",
-      "h_reach": 82,
+      "h_reach": 200,
       "commitment": "medium",
       "v_range": [
         -67,
@@ -2244,7 +2244,7 @@
     },
     "WallTrick": {
       "category": "special",
-      "description": "Pounce \u2014 wall pounce attack, 7-hit combo potential. NOTE: fighter pounces from wall ~200 units, so effective range is much larger than hitbox.",
+      "description": "Pounce \u2014 wall pounce attack covering ~200 units, 7-hit combo potential. Requires wall nearby.",
       "speed": "fast",
       "damage": "high",
       "range": "long",
@@ -2254,13 +2254,13 @@
     },
     "DashThroughAttack": {
       "category": "offense",
-      "description": "Sneak Attack \u2014 dash through opponent and attack. Crosses up. NOTE: fighter dashes through opponent, so effective range is much larger than hitbox.",
+      "description": "Sneak Attack \u2014 dashes through opponent and attacks. Covers ~150 units. Crosses up, confuses blocking direction.",
       "speed": "fast",
       "damage": "high",
       "range": "long",
       "beats": "crosses up, confuses blocking direction",
       "weakness": "predictable if overused, loses to fast reactions",
-      "h_reach": 42,
+      "h_reach": 150,
       "v_range": [
         -31,
         0
