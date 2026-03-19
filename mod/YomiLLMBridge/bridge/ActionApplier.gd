@@ -60,11 +60,16 @@ func _resolve_queued_extra(extra):
 	var resolved = {}
 
 	# The game checks "DI" (uppercase) in process_extra(); lowercase "di" is ignored.
+	# IMPORTANT: The game's fixed-point math library expects string representations
+	# of numbers (e.g. "50", "-100"), NOT raw integers.  BaseChar.current_di stores
+	# {"x": "0", "y": "0"} and xy_to_dir / vec_mul parse these strings.  Passing
+	# raw ints causes Rust panics ("invalid digit found in string") which accumulate
+	# and eventually crash the game.
 	var di = extra.get("di", extra.get("DI"))
 	if di != null and di is Dictionary:
 		resolved["DI"] = {
-			"x": int(di.get("x", 0)),
-			"y": int(di.get("y", 0)),
+			"x": str(int(di.get("x", 0))),
+			"y": str(int(di.get("y", 0))),
 		}
 
 	resolved["feint"] = bool(extra.get("feint", false))
