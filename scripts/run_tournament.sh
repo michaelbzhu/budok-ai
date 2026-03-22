@@ -232,64 +232,6 @@ with open(out_path, 'w') as f:
 " "$p1_policy" "$p2_policy" "$BASE_CONFIG" "$match_config"
 }
 
-# Poll and print HP status once per minute from the latest run directory
-hp_monitor() {
-    local monitor_pid_file="$1"
-    echo $$ > "$monitor_pid_file"
-    while true; do
-        sleep 60
-        # Find the latest active run directory
-        local latest_run
-        latest_run=$(ls -td runs/*/ 2>/dev/null | head -1)
-        if [ -z "$latest_run" ] || [ ! -f "${latest_run}decisions.jsonl" ]; then
-            continue
-        fi
-        # Skip if match is already done
-        if [ -f "${latest_run}result.json" ] && \
-           python3 -c "import json; exit(0 if json.load(open('${latest_run}result.json')).get('status')=='completed' else 1)" 2>/dev/null; then
-            continue
-        fi
-        # Read last decision to get current HP
-        python3 -c "
-import json, sys
-run_dir = sys.argv[1]
-try:
-    lines = open(run_dir + 'decisions.jsonl').readlines()
-    if not lines:
-        sys.exit(0)
-    last = json.loads(lines[-1])
-    req = last.get('request_payload', {})
-    obs = req.get('observation', {})
-    fighters = obs.get('fighters', [])
-    if len(fighters) < 2:
-        sys.exit(0)
-    p1 = fighters[0]
-    p2 = fighters[1]
-    p1_hp = p1.get('hp', '?')
-    p2_hp = p2.get('hp', '?')
-    p1_char = p1.get('character', '?')
-    p2_char = p2.get('character', '?')
-    turn = req.get('turn_id', '?')
-    from datetime import datetime
-    ts = datetime.now().strftime('%H:%M:%S')
-    print(f'[tournament] [{ts}] Turn {turn}: {p1_char} {p1_hp} HP vs {p2_char} {p2_hp} HP', file=sys.stderr)
-except Exception:
-    pass
-" "$latest_run" 2>/dev/null || true
-    done
-}
-
-stop_hp_monitor() {
-    if [ -n "${HP_MONITOR_PID_FILE:-}" ] && [ -f "$HP_MONITOR_PID_FILE" ]; then
-        local pid
-        pid=$(cat "$HP_MONITOR_PID_FILE" 2>/dev/null)
-        if [ -n "$pid" ]; then
-            kill "$pid" 2>/dev/null || true
-        fi
-        rm -f "$HP_MONITOR_PID_FILE"
-    fi
-}
-
 # Print a clean game summary from result.json and character_selection.json
 print_game_summary() {
     local result_file="$1"
@@ -415,10 +357,8 @@ run_game() {
     log "  Game ${game_num} starting..."
 
     local game_log="$TOURNEY_DIR/${series_id}_game${game_num}.log"
-
-    # Start HP + error monitor (reads daemon output for errors/fallbacks, polls HP once/min)
-    HP_MONITOR_PID_FILE=$(mktemp)
-    hp_monitor "$HP_MONITOR_PID_FILE" &
+    local game_start_epoch
+    game_start_epoch=$(date +%s)
 
     # Run match: tee full output to log, filter important lines to stderr for live display
     # Temporarily disable errexit/pipefail for the pipeline — grep exits 1 when the
@@ -430,11 +370,17 @@ run_game() {
         | sed 's/^/[tournament]   /' >&2
     local match_exit=${PIPESTATUS[0]}
     set -eo pipefail
-    stop_hp_monitor
 
-    # Find the latest result
-    local latest_run
-    latest_run=$(ls -td runs/*/ 2>/dev/null | head -1)
+    # Find the latest result (created after this game started)
+    local latest_run=""
+    for d in $(ls -td runs/*/ 2>/dev/null); do
+        local dir_epoch
+        dir_epoch=$(stat -f %m "$d" 2>/dev/null || stat -c %Y "$d" 2>/dev/null || echo 0)
+        if [ "$dir_epoch" -ge "$game_start_epoch" ]; then
+            latest_run="$d"
+            break
+        fi
+    done
 
     if [ -n "$latest_run" ] && [ -f "${latest_run}result.json" ]; then
         local match_status
@@ -629,9 +575,9 @@ for ri, rnd in enumerate(bracket['rounds']):
 with open(f'{tourney_dir}/bracket.json', 'w') as f:
     json.dump(bracket, f, indent=2)
     f.write('\n')
-" "$series_id" "$series_winner_policy" "$series_winner_seed" "$p1_wins" "$p2_wins" "$TOURNEY_DIR"
-
-    echo "$series_winner_policy:$series_winner_seed"
+" "$series_id" "$series_winner_policy" "$series_winner_seed" "$p1_wins" "$p2_wins" "$TOURNEY_DIR" || {
+        err "Failed to update bracket state for ${series_id}"
+    }
 }
 
 # ─── Execute bracket rounds ──────────────────────────────────────────────────
@@ -659,7 +605,9 @@ if $round_idx < len(bracket['rounds']):
     fi
 
     while IFS='|' read -r series_id p1_policy p2_policy p1_seed p2_seed; do
-        run_series "$series_id" "$p1_policy" "$p2_policy" "$p1_seed" "$p2_seed"
+        run_series "$series_id" "$p1_policy" "$p2_policy" "$p1_seed" "$p2_seed" || {
+            err "Series ${series_id} failed, continuing bracket"
+        }
         # After first match, skip mod push for remaining
         SKIP_MOD_PUSH=true
     done <<< "$round_series"
