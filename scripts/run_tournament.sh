@@ -378,7 +378,7 @@ run_game() {
     # Show: character selection, errors, fallbacks, warnings, match result
     scripts/run_match.sh "${match_args[@]}" 2>&1 \
         | tee "$game_log" \
-        | grep --line-buffered -iE "character selection resolved|fallback|ERROR|malformed|illegal|timeout|refused|failed|MATCH RESULT|Status:|Winner:|Reason:|Turns:" \
+        | grep --line-buffered -iE "character selection resolved|HP_STATUS|fallback|ERROR|malformed|illegal|timeout|refused|failed|MATCH RESULT|Status:|Winner:|Reason:|Turns:" \
         | sed 's/^/[tournament]   /' >&2 &
     local match_pid=$!
 

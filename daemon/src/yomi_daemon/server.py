@@ -539,6 +539,23 @@ class DaemonServer:
             used_fallback,
         )
 
+        # Periodic HP status (every 10 turns, on p1's turn to avoid duplicates)
+        if request.turn_id % 10 == 0 and player_id == "p1":
+            try:
+                fighters = request.observation.get("fighters", [])
+                if len(fighters) >= 2:
+                    f1, f2 = fighters[0], fighters[1]
+                    self.logger.info(
+                        "HP_STATUS turn %d: %s %s HP vs %s %s HP",
+                        request.turn_id,
+                        f1.get("character", "?"),
+                        f1.get("hp", "?"),
+                        f2.get("character", "?"),
+                        f2.get("hp", "?"),
+                    )
+            except Exception:
+                pass
+
     async def _handle_replay_capture(
         self,
         *,
