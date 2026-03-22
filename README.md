@@ -1,6 +1,6 @@
 # budok-ai
 
-LLMs can fight!
+LLMs can fight! Here's Sonnet vs. Opus:
 
 https://github.com/user-attachments/assets/5e855a46-f6a0-48f7-b811-9c26b8d8a907
 
