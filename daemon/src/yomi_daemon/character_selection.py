@@ -351,7 +351,15 @@ async def _call_openai_compat(
         raise ValueError(f"API key not configured for {provider} character selection")
 
     base_url = "https://openrouter.ai/api/v1" if provider == "openrouter" else None
-    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    default_headers: dict[str, str] = {}
+    if provider == "openrouter":
+        default_headers["X-Title"] = "budok-ai"
+        default_headers["X-OpenRouter-Categories"] = "game"
+    client = AsyncOpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        default_headers=default_headers or None,
+    )
     schema = character_select_output_json_schema()
 
     payload: dict[str, Any] = {

@@ -43,6 +43,7 @@ class OpenRouterTransport(Protocol):
         timeout_ms: int,
         http_referer: str | None,
         title: str | None,
+        categories: str | None = None,
     ) -> JsonObject: ...
 
 
@@ -69,12 +70,14 @@ class DefaultOpenRouterTransport:
         timeout_ms: int,
         http_referer: str | None,
         title: str | None,
+        categories: str | None = None,
     ) -> JsonObject:
         try:
             response = await self._client_for_config(
                 api_key=api_key,
                 http_referer=http_referer,
                 title=title,
+                categories=categories,
             ).chat.completions.create(
                 **cast(Any, payload),
                 timeout=timeout_ms / 1000,
@@ -97,8 +100,9 @@ class DefaultOpenRouterTransport:
         api_key: str,
         http_referer: str | None,
         title: str | None,
+        categories: str | None = None,
     ) -> AsyncOpenAI:
-        cache_key = (api_key, http_referer, title)
+        cache_key = (api_key, http_referer, title, categories)
         client = self._client_by_key_and_headers.get(cache_key)
         if client is None:
             default_headers: dict[str, str] = {}
@@ -106,6 +110,8 @@ class DefaultOpenRouterTransport:
                 default_headers["HTTP-Referer"] = http_referer
             if title is not None:
                 default_headers["X-Title"] = title
+            if categories is not None:
+                default_headers["X-OpenRouter-Categories"] = categories
             client = AsyncOpenAI(
                 api_key=api_key,
                 base_url=_OPENROUTER_BASE_URL,
@@ -129,6 +135,7 @@ class OpenRouterAdapter(BasePolicyAdapter):
         max_tokens: int | None,
         http_referer: str | None,
         title: str | None,
+        categories: str | None = None,
         transport: OpenRouterTransport | None = None,
         default_trace_seed: int = 0,
     ) -> None:
@@ -141,6 +148,7 @@ class OpenRouterAdapter(BasePolicyAdapter):
         self._max_tokens = max_tokens
         self._http_referer = http_referer
         self._title = title
+        self._categories = categories
         self._transport = transport or DefaultOpenRouterTransport()
 
     async def decide(self, request: DecisionRequest) -> ActionDecision:
@@ -222,6 +230,7 @@ class OpenRouterAdapter(BasePolicyAdapter):
             timeout_ms=self._decision_timeout_ms,
             http_referer=self._http_referer,
             title=self._title,
+            categories=self._categories,
         )
         output = _extract_response_output(provider_response)
         return _ProviderCallResult(
@@ -287,6 +296,7 @@ def build_openrouter_adapter(
         max_tokens=policy.max_tokens,
         http_referer=_optional_string_option(options, "http_referer"),
         title=_optional_string_option(options, "title"),
+        categories=_optional_string_option(options, "categories"),
         transport=transport,
         default_trace_seed=default_trace_seed,
     )

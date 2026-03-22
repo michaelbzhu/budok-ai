@@ -22,13 +22,14 @@
       "prompt_version": "strategic_v1",
       "credential_env_var": "OPENROUTER_API_KEY",
       "temperature": 0.7,
-      "max_tokens": 512,
+      "max_tokens": 2048,
       "options": {
         "title": "budok-ai",
         "response_parser": {
           "enable_correction_retry": true,
           "max_correction_retries": 1
-        }
+        },
+        "categories": "game"
       }
     },
     "openai/gpt-5.4": {
@@ -37,13 +38,14 @@
       "prompt_version": "strategic_v1",
       "credential_env_var": "OPENROUTER_API_KEY",
       "temperature": 0.7,
-      "max_tokens": 512,
+      "max_tokens": 2048,
       "options": {
         "title": "budok-ai",
         "response_parser": {
           "enable_correction_retry": true,
           "max_correction_retries": 1
-        }
+        },
+        "categories": "game"
       }
     },
     "anthropic/claude-opus": {
@@ -52,7 +54,7 @@
       "prompt_version": "strategic_v1",
       "credential_env_var": "ANTHROPIC_API_KEY",
       "temperature": 0.7,
-      "max_tokens": 512,
+      "max_tokens": 2048,
       "options": {
         "response_parser": {
           "enable_correction_retry": true,
@@ -66,7 +68,7 @@
       "prompt_version": "strategic_v1",
       "credential_env_var": "ANTHROPIC_API_KEY",
       "temperature": 0.7,
-      "max_tokens": 512,
+      "max_tokens": 2048,
       "options": {
         "response_parser": {
           "enable_correction_retry": true,
@@ -80,13 +82,14 @@
       "prompt_version": "strategic_v1",
       "credential_env_var": "OPENROUTER_API_KEY",
       "temperature": 0.7,
-      "max_tokens": 512,
+      "max_tokens": 2048,
       "options": {
         "title": "budok-ai",
         "response_parser": {
           "enable_correction_retry": true,
           "max_correction_retries": 1
-        }
+        },
+        "categories": "game"
       }
     },
     "minimax/minimax-m2.7": {
@@ -95,13 +98,14 @@
       "prompt_version": "strategic_v1",
       "credential_env_var": "OPENROUTER_API_KEY",
       "temperature": 0.7,
-      "max_tokens": 512,
+      "max_tokens": 2048,
       "options": {
         "title": "budok-ai",
         "response_parser": {
           "enable_correction_retry": true,
           "max_correction_retries": 1
-        }
+        },
+        "categories": "game"
       }
     },
     "xiaomi/mimo-v2-pro": {
@@ -110,13 +114,14 @@
       "prompt_version": "strategic_v1",
       "credential_env_var": "OPENROUTER_API_KEY",
       "temperature": 0.7,
-      "max_tokens": 512,
+      "max_tokens": 2048,
       "options": {
         "title": "budok-ai",
         "response_parser": {
           "enable_correction_retry": true,
           "max_correction_retries": 1
-        }
+        },
+        "categories": "game"
       }
     },
     "x-ai/grok-4.20-beta": {
@@ -125,13 +130,14 @@
       "prompt_version": "strategic_v1",
       "credential_env_var": "OPENROUTER_API_KEY",
       "temperature": 0.7,
-      "max_tokens": 512,
+      "max_tokens": 2048,
       "options": {
         "title": "budok-ai",
         "response_parser": {
           "enable_correction_retry": true,
           "max_correction_retries": 1
-        }
+        },
+        "categories": "game"
       }
     }
   },
