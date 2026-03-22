@@ -1,4 +1,4 @@
-# Budok-AI Harness Mod Spec
+# budok-ai Harness Mod Spec
 
 ## 1) Purpose
 

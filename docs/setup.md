@@ -1,6 +1,6 @@
 # Setup
 
-This guide covers everything needed to develop and run experiments with the Budok-AI Arena.
+This guide covers everything needed to develop and run experiments with the budok-ai.
 
 ## Prerequisites
 

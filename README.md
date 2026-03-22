@@ -1,4 +1,4 @@
-# Budok-AI Arena
+# budok-ai
 
 This repository implements the local mod-plus-daemon system described in [the unified spec](specs/unified_spec.md). The codebase is organized around work units in the implementation plans ([v0](plans/v0.md), [v1](plans/v1.md)).
 

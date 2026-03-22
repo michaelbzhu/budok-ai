@@ -1,4 +1,4 @@
-"""Live match viewer TUI for Budok-AI Arena."""
+"""Live match viewer TUI for budok-ai."""
 
 from __future__ import annotations
 
@@ -225,7 +225,7 @@ Screen {
 
 
 class YomiTUI(App):
-    """Live match viewer for Budok-AI Arena."""
+    """Live match viewer for budok-ai."""
 
     CSS = APP_CSS
     TITLE = "YOMI Hustle - Match Viewer"

@@ -1,4 +1,4 @@
-# Running Budok-AI Arena on macOS
+# Running budok-ai on macOS
 
 YOMI Hustle is only available for Windows and Linux on Steam. On macOS, we run the game headlessly inside an x86-64 Linux VM (via OrbStack) and connect it to the Python daemon running natively on the Mac.
 

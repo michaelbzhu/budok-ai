@@ -1,4 +1,4 @@
-# Budok-AI Arena - Unified Specification
+# budok-ai - Unified Specification
 
 ## 1. Project Overview
 
