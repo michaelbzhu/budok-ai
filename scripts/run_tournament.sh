@@ -604,13 +604,17 @@ if $round_idx < len(bracket['rounds']):
         continue
     fi
 
+    log "Round ${round_idx}: $(echo "$round_series" | wc -l | tr -d ' ') series to play"
     while IFS='|' read -r series_id p1_policy p2_policy p1_seed p2_seed; do
+        log "Starting series: ${series_id}"
         run_series "$series_id" "$p1_policy" "$p2_policy" "$p1_seed" "$p2_seed" || {
             err "Series ${series_id} failed, continuing bracket"
         }
+        log "Finished series: ${series_id}"
         # After first match, skip mod push for remaining
         SKIP_MOD_PUSH=true
     done <<< "$round_series"
+    log "Round ${round_idx} complete"
 done
 
 # ─── Print final results ─────────────────────────────────────────────────────
