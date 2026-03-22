@@ -438,11 +438,18 @@ run_game() {
     local latest_run
     latest_run=$(ls -td runs/*/ 2>/dev/null | head -1)
 
-    if [ -n "$latest_run" ] && [ -f "${latest_run}result.json" ] && \
-       python3 -c "import json; exit(0 if json.load(open('${latest_run}result.json')).get('status')=='completed' else 1)" 2>/dev/null; then
-        print_game_summary "${latest_run}result.json" "$game_num"
-        echo "${latest_run}result.json"
-        return 0
+    if [ -n "$latest_run" ] && [ -f "${latest_run}result.json" ]; then
+        local match_status
+        match_status=$(python3 -c "import json; print(json.load(open('${latest_run}result.json')).get('status','?'))" 2>/dev/null || echo "?")
+        if [ "$match_status" = "completed" ]; then
+            print_game_summary "${latest_run}result.json" "$game_num"
+            echo "${latest_run}result.json"
+            return 0
+        elif [ "$match_status" = "failed" ]; then
+            log "  Game ${game_num}: FAILED (game crashed/disconnected)"
+            echo "${latest_run}result.json"
+            return 1
+        fi
     fi
 
     err "Game failed: ${series_id} Game ${game_num} (exit=$match_exit, see $game_log)"
