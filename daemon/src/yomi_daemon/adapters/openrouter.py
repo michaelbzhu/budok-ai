@@ -87,6 +87,11 @@ class DefaultOpenRouterTransport:
         except APIStatusError as exc:
             from yomi_daemon.redact import sanitize_provider_error
 
+            import logging
+
+            logging.getLogger("yomi_daemon.adapters.openrouter").warning(
+                "OpenRouter API error %d: %s", exc.status_code, sanitize_provider_error(exc)
+            )
             raise OpenRouterProviderError(sanitize_provider_error(exc)) from exc
 
         dumped = response.model_dump(mode="json")
@@ -258,7 +263,7 @@ class OpenRouterAdapter(BasePolicyAdapter):
                 "type": "json_schema",
                 "json_schema": {
                     "name": "yomi_action_decision",
-                    "strict": True,
+                    "strict": False,
                     "schema": decision_output_json_schema(),
                 },
             },
