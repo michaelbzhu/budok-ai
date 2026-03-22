@@ -62,7 +62,7 @@ done
 
 # ─── Utility functions ───────────────────────────────────────────────────────
 
-log() { printf '[tournament] %s\n' "$*"; }
+log() { printf '[tournament] %s\n' "$*" >&2; }
 err() { printf '[tournament] ERROR: %s\n' "$*" >&2; }
 
 short_name() {
@@ -202,7 +202,7 @@ for ri, rnd in enumerate(bracket['rounds']):
         else:
             print(f'║    {s[\"series_id\"]}: TBD vs TBD')
     print('║')
-"
+" >&2
 log "║  Best of: $BEST_OF | Character selection: blind pick    ║"
 log "╚══════════════════════════════════════════════════════════╝"
 log ""
@@ -232,6 +232,103 @@ with open(out_path, 'w') as f:
 " "$p1_policy" "$p2_policy" "$BASE_CONFIG" "$match_config"
 }
 
+# Poll and print HP status once per minute from the latest run directory
+hp_monitor() {
+    local monitor_pid_file="$1"
+    echo $$ > "$monitor_pid_file"
+    while true; do
+        sleep 60
+        # Find the latest active run directory
+        local latest_run
+        latest_run=$(ls -td runs/*/ 2>/dev/null | head -1)
+        if [ -z "$latest_run" ] || [ ! -f "${latest_run}decisions.jsonl" ]; then
+            continue
+        fi
+        # Skip if match is already done
+        if [ -f "${latest_run}result.json" ] && \
+           python3 -c "import json; exit(0 if json.load(open('${latest_run}result.json')).get('status')=='completed' else 1)" 2>/dev/null; then
+            continue
+        fi
+        # Read last decision to get current HP
+        python3 -c "
+import json, sys
+run_dir = sys.argv[1]
+try:
+    lines = open(run_dir + 'decisions.jsonl').readlines()
+    if not lines:
+        sys.exit(0)
+    last = json.loads(lines[-1])
+    req = last.get('request', {})
+    obs = req.get('observation', {})
+    fighters = obs.get('fighters', {})
+    p1 = fighters.get('p1', {})
+    p2 = fighters.get('p2', {})
+    p1_hp = p1.get('hp', '?')
+    p2_hp = p2.get('hp', '?')
+    p1_char = p1.get('character', '?')
+    p2_char = p2.get('character', '?')
+    turn = req.get('turn_id', '?')
+    from datetime import datetime
+    ts = datetime.now().strftime('%H:%M:%S')
+    print(f'[tournament] [{ts}] Turn {turn}: {p1_char} {p1_hp} HP vs {p2_char} {p2_hp} HP')
+except Exception:
+    pass
+" "$latest_run" 2>/dev/null >&2 || true
+    done
+}
+
+stop_hp_monitor() {
+    if [ -n "${HP_MONITOR_PID_FILE:-}" ] && [ -f "$HP_MONITOR_PID_FILE" ]; then
+        local pid
+        pid=$(cat "$HP_MONITOR_PID_FILE" 2>/dev/null)
+        if [ -n "$pid" ]; then
+            kill "$pid" 2>/dev/null || true
+        fi
+        rm -f "$HP_MONITOR_PID_FILE"
+    fi
+}
+
+# Print a clean game summary from result.json and character_selection.json
+print_game_summary() {
+    local result_file="$1"
+    local game_num="$2"
+
+    python3 -c "
+import json, sys
+
+result_file = sys.argv[1]
+game_num = sys.argv[2]
+
+result = json.load(open(result_file))
+run_dir = result_file.rsplit('/', 1)[0] + '/'
+
+# Get character picks
+p1_char = '?'
+p2_char = '?'
+try:
+    cs = json.load(open(run_dir + 'character_selection.json'))
+    for trace in cs:
+        if trace['player_slot'] == 'p1':
+            p1_char = trace['character']
+        elif trace['player_slot'] == 'p2':
+            p2_char = trace['character']
+except (FileNotFoundError, json.JSONDecodeError):
+    pass
+
+winner = result.get('winner', '?')
+end_reason = result.get('end_reason', '?')
+turns = result.get('total_turns', '?')
+
+# Get final HP from metrics or result
+fallbacks = result.get('metrics', {}).get('fallback_count', '?')
+
+winner_char = p1_char if winner == 'p1' else p2_char if winner == 'p2' else '?'
+loser_char = p2_char if winner == 'p1' else p1_char if winner == 'p2' else '?'
+
+print(f'[tournament]   Game {game_num}: {p1_char} vs {p2_char} | Winner: {winner_char} ({end_reason}) | {turns} turns, {fallbacks} fallbacks')
+" "$result_file" "$game_num" 2>/dev/null >&2 || log "  Game ${game_num}: completed (details unavailable)"
+}
+
 # Run a single game and return the result
 run_game() {
     local p1_policy="$1"
@@ -258,20 +355,41 @@ run_game() {
         match_args+=("--match-history" "$history_file")
     fi
 
-    log "Running ${series_id} Game ${game_num}: $(short_name "$p1_policy") vs $(short_name "$p2_policy")"
+    log "  Game ${game_num} starting..."
 
-    if scripts/run_match.sh "${match_args[@]}"; then
+    # Run match with output redirected to log file
+    local game_log="$TOURNEY_DIR/${series_id}_game${game_num}.log"
+
+    # Start HP monitor
+    HP_MONITOR_PID_FILE=$(mktemp)
+    hp_monitor "$HP_MONITOR_PID_FILE" &
+
+    if scripts/run_match.sh "${match_args[@]}" > "$game_log" 2>&1; then
+        stop_hp_monitor
         touch "$TOURNEY_DIR/.mod_pushed"
         # Find the latest result
         local latest_run
         latest_run=$(ls -td runs/*/ 2>/dev/null | head -1)
         if [ -n "$latest_run" ] && [ -f "${latest_run}result.json" ]; then
+            print_game_summary "${latest_run}result.json" "$game_num"
             echo "${latest_run}result.json"
             return 0
         fi
     fi
 
-    err "Game failed: ${series_id} Game ${game_num}"
+    stop_hp_monitor
+
+    # Check if match completed despite non-zero exit
+    local latest_run
+    latest_run=$(ls -td runs/*/ 2>/dev/null | head -1)
+    if [ -n "$latest_run" ] && [ -f "${latest_run}result.json" ] && \
+       python3 -c "import json; exit(0 if json.load(open('${latest_run}result.json')).get('status')=='completed' else 1)" 2>/dev/null; then
+        print_game_summary "${latest_run}result.json" "$game_num"
+        echo "${latest_run}result.json"
+        return 0
+    fi
+
+    err "Game failed: ${series_id} Game ${game_num} (see $game_log)"
     return 1
 }
 
@@ -378,25 +496,24 @@ run_series() {
 
         local result_file
         if ! result_file=$(run_game "$p1_policy" "$p2_policy" "$series_id" "$game_num" "$history_file"); then
-            err "Game ${game_num} failed, counting as loss for higher seed"
+            err "  Game ${game_num} failed, counting as loss for higher seed"
             p2_wins=$((p2_wins + 1))
             continue
         fi
 
-        local winner
-        winner=$(python3 -c "import json; print(json.load(open('$result_file')).get('winner','?'))")
+        # Extract winner from result file
+        if [ -n "$result_file" ] && [ -f "$result_file" ]; then
+            local winner
+            winner=$(python3 -c "import json; print(json.load(open('$result_file')).get('winner','?'))")
 
-        if [ "$winner" = "p1" ]; then
-            p1_wins=$((p1_wins + 1))
-            log "Game ${game_num}: $(short_name "$p1_policy") wins! (Series: ${p1_wins}-${p2_wins})"
-        elif [ "$winner" = "p2" ]; then
-            p2_wins=$((p2_wins + 1))
-            log "Game ${game_num}: $(short_name "$p2_policy") wins! (Series: ${p1_wins}-${p2_wins})"
-        else
-            log "Game ${game_num}: Draw or unknown result"
+            if [ "$winner" = "p1" ]; then
+                p1_wins=$((p1_wins + 1))
+            elif [ "$winner" = "p2" ]; then
+                p2_wins=$((p2_wins + 1))
+            fi
+            log "  Series: $(short_name "$p1_policy") ${p1_wins} - ${p2_wins} $(short_name "$p2_policy")"
+            game_results+=("$result_file")
         fi
-
-        game_results+=("$result_file")
     done
 
     # Determine series winner
@@ -524,7 +641,7 @@ if champ:
     print(f'║  🏆 CHAMPION: #{champ[\"seed\"]} {short(champ[\"policy_id\"])}')
 else:
     print('║  No champion yet')
-"
+" >&2
 
 log "╚══════════════════════════════════════════════════════════╝"
 log ""
