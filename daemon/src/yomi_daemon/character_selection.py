@@ -364,47 +364,47 @@ async def _call_openai_compat(
 
     payload: dict[str, Any] = {
         "model": cast(str, policy_config.model),
-        "max_tokens": 512,
-        "input": [
+        "max_tokens": 2048,
+        "messages": [
             {
                 "role": "user",
                 "content": (
-                    f"{prompt_text}\n\nUse the `{_TOOL_NAME}` tool to submit your character choice."
+                    f"{prompt_text}\n\nRespond with a JSON object containing "
+                    f'"reasoning" (string) and "character" (one of: '
+                    f"{', '.join(VALID_CHARACTERS)})."
                 ),
             }
         ],
-        "tools": [
-            {
-                "type": "function",
-                "name": _TOOL_NAME,
-                "description": "Submit your character choice with reasoning.",
-                "parameters": schema,
-            }
-        ],
-        "tool_choice": {"type": "function", "name": _TOOL_NAME},
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "character_choice",
+                "strict": True,
+                "schema": schema,
+            },
+        },
     }
     if policy_config.temperature is not None:
         payload["temperature"] = policy_config.temperature
 
-    response = await client.responses.create(**payload, timeout=timeout_ms / 1000)
+    response = await client.chat.completions.create(**payload, timeout=timeout_ms / 1000)
     dumped = response.model_dump(mode="json")
 
-    # Extract function call output
-    output = dumped.get("output", [])
-    for item in output:
-        if isinstance(item, dict) and item.get("type") == "function_call":
-            if item.get("name") == _TOOL_NAME:
-                arguments = item.get("arguments", "{}")
-                if isinstance(arguments, str):
-                    return json.loads(arguments)
-                return arguments
+    # Extract from chat completions response
+    choices = dumped.get("choices", [])
+    if not choices:
+        raise ValueError(f"No choices in {provider} character selection response")
 
-    # Fall back to text output
-    for item in output:
-        if isinstance(item, dict) and item.get("type") == "message":
-            content = item.get("content", [])
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "output_text":
-                    return block.get("text", "")
+    message = choices[0].get("message", {})
+
+    # Try parsed structured output first
+    parsed = message.get("parsed")
+    if isinstance(parsed, dict):
+        return parsed
+
+    # Fall back to content text
+    content = message.get("content", "")
+    if isinstance(content, str) and content.strip():
+        return content
 
     raise ValueError(f"No usable output from {provider} character selection response")
