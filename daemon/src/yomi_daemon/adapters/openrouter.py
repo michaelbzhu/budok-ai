@@ -136,6 +136,7 @@ class OpenRouterAdapter(BasePolicyAdapter):
         http_referer: str | None,
         title: str | None,
         categories: str | None = None,
+        reasoning_effort: str | None = None,
         transport: OpenRouterTransport | None = None,
         default_trace_seed: int = 0,
     ) -> None:
@@ -149,6 +150,7 @@ class OpenRouterAdapter(BasePolicyAdapter):
         self._http_referer = http_referer
         self._title = title
         self._categories = categories
+        self._reasoning_effort = reasoning_effort
         self._transport = transport or DefaultOpenRouterTransport()
 
     async def decide(self, request: DecisionRequest) -> ActionDecision:
@@ -266,6 +268,8 @@ class OpenRouterAdapter(BasePolicyAdapter):
             payload["temperature"] = self._temperature
         if self._max_tokens is not None:
             payload["max_tokens"] = self._max_tokens
+        if self._reasoning_effort is not None:
+            payload["reasoning"] = {"effort": self._reasoning_effort}
         if request.trace_seed is not None:
             payload["seed"] = request.trace_seed
         payload["metadata"] = {"prompt_version": prompt_version, "policy_id": self.id}
@@ -297,6 +301,7 @@ def build_openrouter_adapter(
         http_referer=_optional_string_option(options, "http_referer"),
         title=_optional_string_option(options, "title"),
         categories=_optional_string_option(options, "categories"),
+        reasoning_effort=_optional_string_option(options, "reasoning_effort"),
         transport=transport,
         default_trace_seed=default_trace_seed,
     )
