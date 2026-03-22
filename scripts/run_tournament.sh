@@ -422,9 +422,11 @@ run_game() {
 
     # Run match: tee full output to log, filter important lines to stderr for live display
     # Show: character selection, errors, fallbacks, warnings, match result
+    # Note: grep returns 1 when pipe closes (no match on final read), so we || true it
+    # to prevent pipefail from killing the script
     scripts/run_match.sh "${match_args[@]}" 2>&1 \
         | tee "$game_log" \
-        | grep --line-buffered -iE "character selection resolved|HP_STATUS|fallback|ERROR|malformed|illegal|timeout|refused|failed|MATCH RESULT|Status:|Winner:|Reason:|Turns:" \
+        | (grep --line-buffered -iE "character selection resolved|HP_STATUS|FALLBACK|ERROR|malformed|illegal|timeout|refused|failed|MATCH RESULT|Status:|Winner:|Reason:|Turns:" || true) \
         | sed 's/^/[tournament]   /' >&2 &
     local match_pid=$!
 
