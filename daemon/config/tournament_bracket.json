@@ -46,8 +46,7 @@
           "enable_correction_retry": true,
           "max_correction_retries": 1
         },
-        "categories": "game",
-        "reasoning_effort": "low"
+        "categories": "game"
       }
     },
     "anthropic/claude-opus": {
@@ -91,8 +90,7 @@
           "enable_correction_retry": true,
           "max_correction_retries": 1
         },
-        "categories": "game",
-        "reasoning_effort": "low"
+        "categories": "game"
       }
     },
     "minimax/minimax-m2.7": {
@@ -108,8 +106,7 @@
           "enable_correction_retry": true,
           "max_correction_retries": 1
         },
-        "categories": "game",
-        "reasoning_effort": "low"
+        "categories": "game"
       }
     },
     "xiaomi/mimo-v2-pro": {
@@ -125,8 +122,7 @@
           "enable_correction_retry": true,
           "max_correction_retries": 1
         },
-        "categories": "game",
-        "reasoning_effort": "low"
+        "categories": "game"
       }
     },
     "x-ai/grok-4.20-beta": {
