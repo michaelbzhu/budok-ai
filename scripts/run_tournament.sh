@@ -319,13 +319,22 @@ winner = result.get('winner', '?')
 end_reason = result.get('end_reason', '?')
 turns = result.get('total_turns', '?')
 
-# Get final HP from metrics or result
-fallbacks = result.get('metrics', {}).get('fallback_count', '?')
+metrics = result.get('metrics', {})
+fallbacks = metrics.get('fallback_count', 0)
+errors = metrics.get('error_count', 0)
+error_list = result.get('errors', [])
 
 winner_char = p1_char if winner == 'p1' else p2_char if winner == 'p2' else '?'
-loser_char = p2_char if winner == 'p1' else p1_char if winner == 'p2' else '?'
 
-print(f'[tournament]   Game {game_num}: {p1_char} vs {p2_char} | Winner: {winner_char} ({end_reason}) | {turns} turns, {fallbacks} fallbacks')
+summary = f'[tournament]   Game {game_num}: {p1_char} vs {p2_char} | Winner: {winner_char} ({end_reason}) | {turns} turns'
+if fallbacks:
+    summary += f', {fallbacks} fallbacks'
+if errors:
+    summary += f', {errors} errors'
+print(summary)
+
+for e in error_list:
+    print(f'[tournament]     ERROR: {e}')
 " "$result_file" "$game_num" 2>/dev/null >&2 || log "  Game ${game_num}: completed (details unavailable)"
 }
 
@@ -357,31 +366,28 @@ run_game() {
 
     log "  Game ${game_num} starting..."
 
-    # Run match with output redirected to log file
     local game_log="$TOURNEY_DIR/${series_id}_game${game_num}.log"
 
-    # Start HP monitor
+    # Start HP + error monitor (reads daemon output for errors/fallbacks, polls HP once/min)
     HP_MONITOR_PID_FILE=$(mktemp)
     hp_monitor "$HP_MONITOR_PID_FILE" &
 
-    if scripts/run_match.sh "${match_args[@]}" > "$game_log" 2>&1; then
-        stop_hp_monitor
-        touch "$TOURNEY_DIR/.mod_pushed"
-        # Find the latest result
-        local latest_run
-        latest_run=$(ls -td runs/*/ 2>/dev/null | head -1)
-        if [ -n "$latest_run" ] && [ -f "${latest_run}result.json" ]; then
-            print_game_summary "${latest_run}result.json" "$game_num"
-            echo "${latest_run}result.json"
-            return 0
-        fi
-    fi
+    # Run match: tee full output to log, filter important lines to stderr for live display
+    # Show: character selection, errors, fallbacks, warnings, match result
+    scripts/run_match.sh "${match_args[@]}" 2>&1 \
+        | tee "$game_log" \
+        | grep --line-buffered -iE "character selection resolved|fallback|ERROR|malformed|illegal|timeout|refused|failed|MATCH RESULT|Status:|Winner:|Reason:|Turns:" \
+        | sed 's/^/[tournament]   /' >&2 &
+    local match_pid=$!
 
+    wait "$match_pid" 2>/dev/null
+    local match_exit=$?
     stop_hp_monitor
 
-    # Check if match completed despite non-zero exit
+    # Find the latest result
     local latest_run
     latest_run=$(ls -td runs/*/ 2>/dev/null | head -1)
+
     if [ -n "$latest_run" ] && [ -f "${latest_run}result.json" ] && \
        python3 -c "import json; exit(0 if json.load(open('${latest_run}result.json')).get('status')=='completed' else 1)" 2>/dev/null; then
         print_game_summary "${latest_run}result.json" "$game_num"
@@ -389,7 +395,7 @@ run_game() {
         return 0
     fi
 
-    err "Game failed: ${series_id} Game ${game_num} (see $game_log)"
+    err "Game failed: ${series_id} Game ${game_num} (exit=$match_exit, see $game_log)"
     return 1
 }
 
