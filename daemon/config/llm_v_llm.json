@@ -4,7 +4,7 @@
     "host": "0.0.0.0",
     "port": 8765
   },
-  "decision_timeout_ms": 30000,
+  "decision_timeout_ms": 120000,
   "fallback_mode": "safe_continue",
   "logging": {
     "events": true,
