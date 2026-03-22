@@ -60,7 +60,7 @@ def _policy_config(*, credential_value: str | None = "test-key") -> PolicyConfig
         ),
         temperature=0.1,
         max_tokens=128,
-        options={"http_referer": "https://example.test", "title": "yomi-ai"},
+        options={"http_referer": "https://example.test", "title": "budok-ai"},
     )
 
 
@@ -108,7 +108,7 @@ def test_openrouter_adapter_returns_schema_valid_decision_on_success() -> None:
     assert result.decision.tokens_out == 3
     first_call = cast(dict[str, object], transport.calls[0])
     assert first_call["http_referer"] == "https://example.test"
-    assert first_call["title"] == "yomi-ai"
+    assert first_call["title"] == "budok-ai"
 
 
 def test_openrouter_adapter_falls_back_on_illegal_structured_output() -> None:

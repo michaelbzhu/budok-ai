@@ -127,7 +127,7 @@ done
 
 # --- Start daemon ---
 
-printf '=== YOMI Hustle LLM Arena — Live Match ===\n'
+printf '=== Budok-AI Arena — Live Match ===\n'
 printf 'Starting daemon...\n'
 
 # Determine the port for status messages

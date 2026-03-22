@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "yomi-daemon"
 version = "0.0.1"
-description = "Daemon and local tooling for the YOMI Hustle LLM Arena project."
+description = "Daemon and local tooling for the Budok-AI Arena project."
 readme = "../README.md"
 requires-python = ">=3.12"
 dependencies = [

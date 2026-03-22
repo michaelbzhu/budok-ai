@@ -5,7 +5,7 @@
 Set up the daemon environment:
 
 ```bash
-cd /Users/nlevine/Dev/yomi-ai/daemon
+cd /Users/nlevine/Dev/budok-ai/daemon
 uv sync
 ```
 

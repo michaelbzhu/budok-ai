@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end match runner for YOMI Hustle LLM Arena on macOS + OrbStack.
+# End-to-end match runner for Budok-AI Arena on macOS + OrbStack.
 #
 # Automates: kill stale game, ensure Xvfb, package mod with correct bridge IP,
 # push mod to VM, start daemon, launch game, wait for completion, report results.

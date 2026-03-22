@@ -1,4 +1,4 @@
-# YOMI Hustle LLM Arena
+# Budok-AI Arena
 
 This repository implements the local mod-plus-daemon system described in [the unified spec](specs/unified_spec.md). The codebase is organized around work units in the implementation plans ([v0](plans/v0.md), [v1](plans/v1.md)).
 
@@ -18,7 +18,7 @@ This repository implements the local mod-plus-daemon system described in [the un
 The daemon is `uv`-first. Run all Python commands through `uv`.
 
 ```bash
-cd /Users/nlevine/Dev/yomi-ai/daemon
+cd /Users/nlevine/Dev/budok-ai/daemon
 uv sync
 ```
 

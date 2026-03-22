@@ -788,7 +788,7 @@ Yomi Hustle is a **perfect-information, simultaneous-move, extensive-form game**
 ## 10. Repository Structure
 
 ```
-yomi-ai/
+budok-ai/
   specs/
     claude_spec.md              # this document
 

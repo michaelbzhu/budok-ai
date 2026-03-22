@@ -50,7 +50,7 @@ func _run() -> void:
 		"fallback_mode": "safe_continue",
 		"logging": {"events": true, "bridge_state": false, "raw_messages": false},
 	}
-	var metadata = {"version": "0.0.1", "name": "YomiLLMBridge", "author": "yomi-ai"}
+	var metadata = {"version": "0.0.1", "name": "YomiLLMBridge", "author": "budok-ai"}
 	client.configure(config, metadata)
 	client.connect_to_daemon()
 

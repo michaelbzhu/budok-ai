@@ -1,4 +1,4 @@
-# Running YOMI Hustle LLM Arena on macOS
+# Running Budok-AI Arena on macOS
 
 YOMI Hustle is only available for Windows and Linux on Steam. On macOS, we run the game headlessly inside an x86-64 Linux VM (via OrbStack) and connect it to the Python daemon running natively on the Mac.
 
@@ -481,7 +481,7 @@ The ad-hoc manual steps are preserved below for debugging. Normal usage should p
 
 ```bash
 # 1. Package and push mod with VM host IP baked in
-cd /path/to/yomi-ai
+cd /path/to/budok-ai
 sed -i '' 's/"host": "127.0.0.1"/"host": "192.168.139.3"/' mod/YomiLLMBridge/config/default_config.json
 scripts/package_mod.sh
 orb push -m ubuntu dist/YomiLLMBridge.zip /home/$USER/games/yomi/mods/YomiLLMBridge.zip

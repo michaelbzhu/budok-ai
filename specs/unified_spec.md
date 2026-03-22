@@ -1,4 +1,4 @@
-# YOMI Hustle LLM Arena - Unified Specification
+# Budok-AI Arena - Unified Specification
 
 ## 1. Project Overview
 
@@ -571,7 +571,7 @@ Two reference budgets are defined:
 ## 15. Repository Structure
 
 ```text
-yomi-ai/
+budok-ai/
   specs/
     claude_spec.md
     opencode.md

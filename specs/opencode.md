@@ -1,4 +1,4 @@
-# YOMI Hustle LLM Harness Mod Spec
+# Budok-AI Harness Mod Spec
 
 ## 1) Purpose
 

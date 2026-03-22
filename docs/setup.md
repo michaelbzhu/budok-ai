@@ -1,6 +1,6 @@
 # Setup
 
-This guide covers everything needed to develop and run experiments with the YOMI Hustle LLM Arena.
+This guide covers everything needed to develop and run experiments with the Budok-AI Arena.
 
 ## Prerequisites
 
@@ -15,8 +15,8 @@ This guide covers everything needed to develop and run experiments with the YOMI
 ## 1. Clone and install dependencies
 
 ```bash
-git clone <repo-url> yomi-ai
-cd yomi-ai
+git clone <repo-url> budok-ai
+cd budok-ai
 uv sync --project daemon
 ```
 
@@ -185,7 +185,7 @@ uv run --project daemon pytest
 ## Directory layout reference
 
 ```
-yomi-ai/
+budok-ai/
   daemon/              Python daemon package
     config/            Runtime config files (default, llm_v_llm, llm_first_test)
     src/yomi_daemon/   Daemon source code

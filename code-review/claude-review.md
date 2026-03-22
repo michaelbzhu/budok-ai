@@ -1,4 +1,4 @@
-# yomi-ai Comprehensive Code Review
+# budok-ai Comprehensive Code Review
 
 **Date:** 2026-03-13
 **Reviewer:** Claude Opus 4.6
@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-yomi-ai is a well-engineered system for connecting LLMs to the turn-based fighting game YOMI Hustle (Your Only Move Is Hustle). The architecture — a Godot mod communicating over WebSocket to a Python daemon that orchestrates LLM calls — is sound and appropriate for the game's simultaneous-turn structure.
+budok-ai is a well-engineered system for connecting LLMs to the turn-based fighting game YOMI Hustle (Your Only Move Is Hustle). The architecture — a Godot mod communicating over WebSocket to a Python daemon that orchestrates LLM calls — is sound and appropriate for the game's simultaneous-turn structure.
 
 **However, the system cannot currently run an actual LLM-vs-LLM match in the live game.** While the individual components (protocol, daemon, adapters, fallback engine, artifact storage, tournament system) are thoroughly built and tested, several integration gaps and a critical protocol mismatch prevent end-to-end operation. The project is roughly **85% complete** for a functional MVP.
 
