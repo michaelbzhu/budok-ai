@@ -328,12 +328,58 @@ error_list = result.get('errors', [])
 
 winner_char = p1_char if winner == 'p1' else p2_char if winner == 'p2' else '?'
 
+# Compute per-policy cost and token stats from prompts.jsonl
+p1_cost = 0.0
+p2_cost = 0.0
+p1_tokens_out = 0
+p2_tokens_out = 0
+p1_reasoning = 0
+p2_reasoning = 0
+p1_policy = '?'
+p2_policy = '?'
+try:
+    with open(run_dir + 'prompts.jsonl') as pf:
+        for pline in pf:
+            p = json.loads(pline)
+            pid = p.get('player_id', '')
+            policy = p.get('policy_id', '')
+            resp = p.get('provider_response', {})
+            for att in resp.get('attempts', []):
+                usage = att.get('usage', {})
+                cost = usage.get('cost', 0) or 0
+                comp = usage.get('completion_tokens', 0) or 0
+                details = usage.get('completion_tokens_details', {}) or {}
+                reasoning = details.get('reasoning_tokens', 0) or 0
+                if pid == 'p1':
+                    p1_cost += cost
+                    p1_tokens_out += comp
+                    p1_reasoning += reasoning
+                    p1_policy = policy
+                elif pid == 'p2':
+                    p2_cost += cost
+                    p2_tokens_out += comp
+                    p2_reasoning += reasoning
+                    p2_policy = policy
+except (FileNotFoundError, json.JSONDecodeError):
+    pass
+
 summary = f'[tournament]   Game {game_num}: {p1_char} vs {p2_char} | Winner: {winner_char} ({end_reason}) | {turns} turns'
 if fallbacks:
     summary += f', {fallbacks} fallbacks'
 if errors:
     summary += f', {errors} errors'
 print(summary)
+
+# Cost breakdown per player
+def fmt_policy(pid):
+    return pid.split('/')[-1].replace('-preview','').replace('-beta','')
+
+if p1_cost > 0 or p2_cost > 0:
+    p1_reasoning_pct = f' ({p1_reasoning} reasoning)' if p1_reasoning else ''
+    p2_reasoning_pct = f' ({p2_reasoning} reasoning)' if p2_reasoning else ''
+    print(f'[tournament]     {fmt_policy(p1_policy)}: \${p1_cost:.4f} | {p1_tokens_out} tokens out{p1_reasoning_pct}')
+    print(f'[tournament]     {fmt_policy(p2_policy)}: \${p2_cost:.4f} | {p2_tokens_out} tokens out{p2_reasoning_pct}')
+    print(f'[tournament]     Total: \${p1_cost + p2_cost:.4f}')
 
 for e in error_list:
     print(f'[tournament]     ERROR: {e}')
