@@ -145,6 +145,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         level=getattr(logging, args.log_level),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # Suppress noisy websockets handshake errors from port-check probes
+    logging.getLogger("websockets.server").setLevel(logging.CRITICAL)
 
     try:
         return asyncio.run(_run_async(args))
