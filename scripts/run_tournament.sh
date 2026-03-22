@@ -258,11 +258,13 @@ try:
     if not lines:
         sys.exit(0)
     last = json.loads(lines[-1])
-    req = last.get('request', {})
+    req = last.get('request_payload', {})
     obs = req.get('observation', {})
-    fighters = obs.get('fighters', {})
-    p1 = fighters.get('p1', {})
-    p2 = fighters.get('p2', {})
+    fighters = obs.get('fighters', [])
+    if len(fighters) < 2:
+        sys.exit(0)
+    p1 = fighters[0]
+    p2 = fighters[1]
     p1_hp = p1.get('hp', '?')
     p2_hp = p2.get('hp', '?')
     p1_char = p1.get('character', '?')
@@ -270,10 +272,10 @@ try:
     turn = req.get('turn_id', '?')
     from datetime import datetime
     ts = datetime.now().strftime('%H:%M:%S')
-    print(f'[tournament] [{ts}] Turn {turn}: {p1_char} {p1_hp} HP vs {p2_char} {p2_hp} HP')
+    print(f'[tournament] [{ts}] Turn {turn}: {p1_char} {p1_hp} HP vs {p2_char} {p2_hp} HP', file=sys.stderr)
 except Exception:
     pass
-" "$latest_run" 2>/dev/null >&2 || true
+" "$latest_run" 2>/dev/null || true
     done
 }
 
