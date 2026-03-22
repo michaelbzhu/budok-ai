@@ -476,6 +476,13 @@ class DaemonServer:
 
         # Emit telemetry event
         if used_fallback:
+            self.logger.warning(
+                "FALLBACK turn %d: %s (%s) -> %s",
+                request.turn_id,
+                adapter.id,
+                player_id,
+                decision.fallback_reason,
+            )
             writer.append_event(
                 Event(
                     match_id=request.match_id,
@@ -523,9 +530,10 @@ class DaemonServer:
             return
 
         self.logger.debug(
-            "Session %s: turn %d player %s -> action=%s fallback=%s",
+            "Session %s: turn %d %s (%s) -> action=%s fallback=%s",
             session.session_id,
             request.turn_id,
+            adapter.id,
             player_id,
             decision.action,
             used_fallback,
