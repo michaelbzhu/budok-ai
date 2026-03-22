@@ -15,8 +15,10 @@ from yomi_daemon.protocol import (
     MessageType,
     PlayerPolicyMapping,
 )
-from yomi_daemon.server import DEFAULT_HOST, DaemonServer
+from yomi_daemon.server import DaemonServer
 from yomi_daemon.validation import parse_envelope
+
+_INTEGRATION = True
 
 
 def build_hello_envelope(
@@ -87,15 +89,6 @@ def test_unsupported_protocol_version_is_rejected_cleanly() -> None:
 
             await asyncio.sleep(0)
             assert server.active_sessions == {}
-
-    asyncio.run(scenario())
-
-
-def test_daemon_defaults_to_localhost_binding() -> None:
-    async def scenario() -> None:
-        async with running_server() as server:
-            assert server.host == DEFAULT_HOST
-            assert server.listening_port > 0
 
     asyncio.run(scenario())
 

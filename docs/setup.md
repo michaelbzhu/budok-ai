@@ -187,15 +187,20 @@ uv run --project daemon pytest
 ```
 yomi-ai/
   daemon/              Python daemon package
-    config/            Runtime config files
+    config/            Runtime config files (default, llm_v_llm, llm_first_test)
     src/yomi_daemon/   Daemon source code
   mod/                 Godot mod sources
     YomiLLMBridge/     The bridge mod
       bridge/          GDScript bridge files
       config/          Mod config
   schemas/             Versioned JSON schemas (v1, v2)
-  prompts/             Prompt templates (minimal, strategic, few_shot, reasoning)
+  prompts/             Prompt templates and move catalog
   scripts/             Helper scripts
+    run_match.sh       End-to-end match runner (macOS + OrbStack)
+    run_live_match.sh  Manual daemon-only match runner
+    package_mod.sh     Package mod into dist/YomiLLMBridge.zip
+    install_mod.sh     Install mod into game directory
+  match.conf.example   Config template for run_match.sh
   tests/               Test suites and fixtures
   runs/                Per-match artifact directories
   plans/               Work unit plans (v0.md, v1.md)

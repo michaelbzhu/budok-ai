@@ -47,6 +47,11 @@ class ReplayCaptureSession:
     def is_recording(self) -> bool:
         return self._process is not None and self._process.returncode is None
 
+    @property
+    def was_started(self) -> bool:
+        """True if recording was started at any point (even if ffmpeg already exited)."""
+        return self._process is not None
+
     async def start_recording(
         self, display: str | None = None, max_duration_seconds: int = 120
     ) -> bool:
@@ -106,17 +111,24 @@ class ReplayCaptureSession:
             return None
 
         # ffmpeg was started with -t (fixed duration) so it will exit cleanly
-        # on its own. We just wait for it, or kill if it takes too long.
-        try:
-            await asyncio.wait_for(self._process.wait(), timeout=180.0)
-            self._logger.info("ffmpeg exited cleanly for match %s", self._match_id)
-        except TimeoutError:
-            self._logger.warning("ffmpeg did not exit within timeout, killing")
+        # on its own. If it already exited, skip waiting.
+        if self._process.returncode is None:
             try:
-                self._process.kill()
-            except (ProcessLookupError, OSError):
-                pass
-            await self._process.wait()
+                await asyncio.wait_for(self._process.wait(), timeout=180.0)
+                self._logger.info("ffmpeg exited cleanly for match %s", self._match_id)
+            except TimeoutError:
+                self._logger.warning("ffmpeg did not exit within timeout, killing")
+                try:
+                    self._process.kill()
+                except (ProcessLookupError, OSError):
+                    pass
+                await self._process.wait()
+        else:
+            self._logger.info(
+                "ffmpeg already exited (code %s) for match %s",
+                self._process.returncode,
+                self._match_id,
+            )
 
         self._process = None
 

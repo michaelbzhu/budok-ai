@@ -90,7 +90,7 @@ Config files: `config/ModOptions.gd`, `config/default_config.json`.
 - `logging` — events, prompts, raw_provider_payloads flags
 - `policy_mapping` — p1/p2 policy ID assignment
 - `policies` — registry of named policies with provider, model, prompt_version, credential, temperature, max_tokens, options
-- `character_selection` — mode (mirror/assigned/random_from_pool), assignments, pool
+- `character_selection` — mode (mirror/assigned/random_from_pool/llm_choice), assignments, pool
 - `tournament` — format, mirror_matches_first, side_swap, games_per_pair, fixed_stage
 - `trace_seed` — reproducibility seed
 - `stage_id` — optional stage override

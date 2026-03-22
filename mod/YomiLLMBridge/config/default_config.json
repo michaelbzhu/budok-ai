@@ -6,7 +6,9 @@
   },
   "protocol": {
     "schema_version": "v2",
-    "supported_versions": ["v2"]
+    "supported_versions": [
+      "v2"
+    ]
   },
   "game_version": "supported-build-16151810",
   "decision_timeout_ms": 15000,

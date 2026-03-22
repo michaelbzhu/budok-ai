@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import pytest
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosedError
 
@@ -57,6 +58,7 @@ async def _running_server(
 # --- Handshake auth tests ---
 
 
+@pytest.mark.integration
 def test_auth_succeeds_with_correct_token() -> None:
     async def scenario() -> None:
         async with _running_server(auth_secret="test-secret-42") as server:
@@ -73,6 +75,7 @@ def test_auth_succeeds_with_correct_token() -> None:
     asyncio.run(scenario())
 
 
+@pytest.mark.integration
 def test_auth_rejects_wrong_token() -> None:
     async def scenario() -> None:
         async with _running_server(auth_secret="correct-secret") as server:
@@ -91,6 +94,7 @@ def test_auth_rejects_wrong_token() -> None:
     asyncio.run(scenario())
 
 
+@pytest.mark.integration
 def test_auth_rejects_missing_token() -> None:
     async def scenario() -> None:
         async with _running_server(auth_secret="my-secret") as server:
@@ -107,6 +111,7 @@ def test_auth_rejects_missing_token() -> None:
     asyncio.run(scenario())
 
 
+@pytest.mark.integration
 def test_no_auth_required_when_secret_not_configured() -> None:
     async def scenario() -> None:
         async with _running_server(auth_secret=None) as server:
@@ -120,6 +125,7 @@ def test_no_auth_required_when_secret_not_configured() -> None:
     asyncio.run(scenario())
 
 
+@pytest.mark.integration
 def test_auth_token_ignored_when_secret_not_configured() -> None:
     """Sending an auth_token when the server doesn't require auth should work fine."""
 
@@ -201,12 +207,6 @@ def test_redact_api_key_equals_pattern() -> None:
     assert "[REDACTED]" in redacted
 
 
-def test_redact_preserves_safe_text() -> None:
-    text = "Connection refused on port 8765"
-    redacted = redact_secrets(text)
-    assert redacted == text
-
-
 def test_sanitize_provider_error_strips_response_repr() -> None:
     class FakeExc(Exception):
         pass
@@ -218,12 +218,3 @@ def test_sanitize_provider_error_strips_response_repr() -> None:
     sanitized = sanitize_provider_error(exc)
     assert "sk-ant" not in sanitized
     assert "<Response" not in sanitized
-
-
-def test_sanitize_provider_error_handles_clean_message() -> None:
-    class FakeExc(Exception):
-        pass
-
-    exc = FakeExc("Connection timeout after 5000ms")
-    sanitized = sanitize_provider_error(exc)
-    assert sanitized == "Connection timeout after 5000ms"

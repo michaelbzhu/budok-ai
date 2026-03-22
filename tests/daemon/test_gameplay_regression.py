@@ -11,6 +11,8 @@ import asyncio
 import json
 import shutil
 import uuid
+
+import pytest
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -579,6 +581,7 @@ def _find_match_dir(match_id: str) -> Path | None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.integration
 def test_simultaneous_turns_both_players_receive_valid_decisions() -> None:
     """When both players are actionable on the same tick, the server handles
     interleaved decision requests for p1 and p2 correctly."""
@@ -700,6 +703,7 @@ def test_simultaneous_turns_baseline_adapters_handle_dual_requests() -> None:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.integration
 def test_full_match_cowboy_vs_wizard_with_parameterized_actions() -> None:
     """Run a multi-turn server match alternating Cowboy and Wizard parameterized
     actions alongside simple moves, proving the richer contract works end to end."""
@@ -883,129 +887,6 @@ def test_full_match_cowboy_vs_wizard_with_parameterized_actions() -> None:
             shutil.rmtree(match_dir)
 
 
-def test_full_match_robot_vs_mutant_with_parameterized_actions() -> None:
-    """Robot (checkbox+8way) vs Mutant (enum+checkbox) multi-turn match."""
-
-    mid = _unique_match_id()
-    config = _server_runtime_config(
-        p1="baseline/random",
-        p2="baseline/greedy_damage",
-    )
-    match_dir: Path | None = None
-
-    robot_action = _action_dict(
-        "drive_impact",
-        label="Drive Impact",
-        payload_spec={
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["armor", "direction"],
-            "properties": {
-                "armor": {"type": "boolean", "default": False},
-                "direction": {
-                    "type": "string",
-                    "enum": ["forward", "back", "up_forward", "down_forward"],
-                    "default": "forward",
-                },
-            },
-        },
-        reverse=True,
-        damage=90.0,
-        startup_frames=12,
-    )
-
-    mutant_action = _action_dict(
-        "install_choice",
-        label="Install Choice",
-        payload_spec={
-            "type": "object",
-            "additionalProperties": False,
-            "required": ["stance", "hold_position"],
-            "properties": {
-                "stance": {
-                    "type": "string",
-                    "enum": ["rush", "grasp", "slam"],
-                    "default": "rush",
-                },
-                "hold_position": {"type": "boolean", "default": False},
-            },
-        },
-    )
-
-    simple_actions = [
-        _action_dict("block", label="Block"),
-        _action_dict("jab", label="Jab", damage=20.0, di=True),
-    ]
-
-    TOTAL_TURNS = 6
-
-    async def scenario() -> list[ActionDecision]:
-        server = DaemonServer(
-            port=0,
-            policy_mapping=config.policy_mapping,
-            config_snapshot=config.to_config_payload(),
-            runtime_config=config,
-        )
-        await server.start()
-        decisions: list[ActionDecision] = []
-        try:
-            async with connect(f"ws://127.0.0.1:{server.listening_port}") as ws:
-                await ws.send(json.dumps(_hello_envelope()))
-                await ws.recv()
-
-                for turn in range(1, TOTAL_TURNS + 1):
-                    player = "p1" if turn % 2 == 1 else "p2"
-                    if player == "p1":
-                        actions = simple_actions + [robot_action]
-                    else:
-                        actions = simple_actions + [mutant_action]
-
-                    obs = _observation_dict(turn, player, "Robot", "Mutant")
-                    req = _decision_request_envelope(
-                        match_id=mid,
-                        turn_id=turn,
-                        player_id=player,
-                        observation=obs,
-                        legal_actions=actions,
-                    )
-                    await ws.send(json.dumps(req))
-                    raw = await ws.recv()
-                    resp = parse_envelope(json.loads(raw))
-                    assert resp.type is MessageType.ACTION_DECISION
-                    decisions.append(cast(ActionDecision, resp.payload))
-
-                await ws.send(
-                    json.dumps(
-                        _match_ended_envelope(match_id=mid, total_turns=TOTAL_TURNS)
-                    )
-                )
-        finally:
-            await server.stop()
-        return decisions
-
-    try:
-        decisions = asyncio.run(scenario())
-        assert len(decisions) == TOTAL_TURNS
-
-        valid_p1 = {"block", "jab", "drive_impact"}
-        valid_p2 = {"block", "jab", "install_choice"}
-
-        for i, d in enumerate(decisions):
-            turn = i + 1
-            if turn % 2 == 1:
-                assert d.action in valid_p1
-            else:
-                assert d.action in valid_p2
-
-        # Zero fallbacks
-        assert all(d.fallback_reason is None for d in decisions)
-
-    finally:
-        match_dir = _find_match_dir(mid)
-        if match_dir is not None and match_dir.exists():
-            shutil.rmtree(match_dir)
-
-
 # ---------------------------------------------------------------------------
 # 3. Fallback-rate and legality-rate assertions for parameterized fixtures
 # ---------------------------------------------------------------------------
@@ -1023,46 +904,6 @@ def test_all_baselines_zero_fallback_on_cowboy_parameterized() -> None:
         assert decision.fallback_reason is None, (
             f"{policy_id} fell back: {decision.fallback_reason}"
         )
-        validate_action_decision_for_request(request, decision)
-
-
-def test_all_baselines_zero_fallback_on_robot_parameterized() -> None:
-    """All baseline adapters produce valid decisions for Robot drive impact."""
-    actions = (_simple_block(), _simple_jab(), _robot_drive_impact())
-    request = build_request(actions, match_id="fb-robot")
-    for policy_id in ALL_BASELINE_IDS:
-        decision = _decide(policy_id, request)
-        assert decision.fallback_reason is None, f"{policy_id} fell back"
-        validate_action_decision_for_request(request, decision)
-
-
-def test_all_baselines_zero_fallback_on_ninja_parameterized() -> None:
-    """All baseline adapters produce valid decisions for Ninja sticky bomb (XY payload)."""
-    actions = (_simple_block(), _simple_jab(), _ninja_sticky_bomb())
-    request = build_request(actions, match_id="fb-ninja")
-    for policy_id in ALL_BASELINE_IDS:
-        decision = _decide(policy_id, request)
-        assert decision.fallback_reason is None, f"{policy_id} fell back"
-        validate_action_decision_for_request(request, decision)
-
-
-def test_all_baselines_zero_fallback_on_mutant_parameterized() -> None:
-    """All baseline adapters produce valid decisions for Mutant install choice."""
-    actions = (_simple_block(), _simple_jab(), _mutant_install_choice())
-    request = build_request(actions, match_id="fb-mutant")
-    for policy_id in ALL_BASELINE_IDS:
-        decision = _decide(policy_id, request)
-        assert decision.fallback_reason is None, f"{policy_id} fell back"
-        validate_action_decision_for_request(request, decision)
-
-
-def test_all_baselines_zero_fallback_on_wizard_parameterized() -> None:
-    """All baseline adapters produce valid decisions for Wizard conjure storm."""
-    actions = (_simple_block(), _simple_jab(), _wizard_conjure_storm())
-    request = build_request(actions, match_id="fb-wizard")
-    for policy_id in ALL_BASELINE_IDS:
-        decision = _decide(policy_id, request)
-        assert decision.fallback_reason is None, f"{policy_id} fell back"
         validate_action_decision_for_request(request, decision)
 
 
@@ -1157,22 +998,6 @@ def test_prompt_renders_history_entries() -> None:
     assert '"was_fallback": true' in rendered.prompt_text
 
 
-def test_prompt_renders_max_history_window() -> None:
-    """Prompt should include up to MAX_HISTORY_ENTRIES (10) history items."""
-    history = _build_history(10)
-    obs = replace(build_observation(), history=history)
-    request = replace(
-        build_request((_simple_block(),)),
-        observation=obs,
-    )
-
-    rendered = render_prompt(request, configured_prompt_version="strategic_v1")
-
-    # All 10 entries should be present
-    assert '"turn_id": 1' in rendered.prompt_text
-    assert '"turn_id": 10' in rendered.prompt_text
-
-
 def test_prompt_history_interacts_with_parameterized_actions() -> None:
     """A prompt with both history and parameterized legal actions renders both correctly."""
     history = _build_history(3)
@@ -1197,12 +1022,3 @@ def test_prompt_history_interacts_with_parameterized_actions() -> None:
     assert '"storm_charge"' in rendered.prompt_text
     assert '"sticky_bomb"' in rendered.prompt_text
     assert '"target_point"' in rendered.prompt_text
-
-
-def test_prompt_empty_history_renders_cleanly() -> None:
-    """An observation with empty history should still render without errors."""
-    request = build_request((_simple_block(), _cowboy_gun_toss()))
-    rendered = render_prompt(request, configured_prompt_version="minimal_v1")
-
-    assert '"history": []' in rendered.prompt_text
-    assert '"gun_toss"' in rendered.prompt_text

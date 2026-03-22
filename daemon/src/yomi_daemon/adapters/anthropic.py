@@ -130,9 +130,9 @@ class AnthropicAdapter(BasePolicyAdapter):
                 prompt_text=rendered_prompt.prompt_text,
                 request=request,
                 attempt_kind="initial",
+                request_trace=request_attempts,
+                response_trace=response_attempts,
             )
-            request_attempts.append(call.request_payload)
-            response_attempts.append(call.response_payload)
             return call.output
 
         async def correction_callback(correction_prompt: str) -> object:
@@ -140,9 +140,9 @@ class AnthropicAdapter(BasePolicyAdapter):
                 prompt_text=correction_prompt,
                 request=request,
                 attempt_kind="correction",
+                request_trace=request_attempts,
+                response_trace=response_attempts,
             )
-            request_attempts.append(call.request_payload)
-            response_attempts.append(call.response_payload)
             return call.output
 
         result = await resolve_policy_decision(
@@ -177,6 +177,8 @@ class AnthropicAdapter(BasePolicyAdapter):
         prompt_text: str,
         request: DecisionRequest,
         attempt_kind: str,
+        request_trace: list[JsonObject] | None = None,
+        response_trace: list[JsonObject] | None = None,
     ) -> _ProviderCallResult:
         if not self._api_key:
             raise AnthropicProviderError("ANTHROPIC_API_KEY is not configured for this policy")
@@ -186,11 +188,21 @@ class AnthropicAdapter(BasePolicyAdapter):
             request=request,
             attempt_kind=attempt_kind,
         )
+        # Append request trace immediately so it's captured even if the
+        # transport call or response extraction raises (429/529/timeout).
+        if request_trace is not None:
+            request_trace.append(provider_request)
+
         provider_response = await self._transport.create_message(
             api_key=self._api_key,
             payload=provider_request,
             timeout_ms=self._decision_timeout_ms,
         )
+        # Append response trace before extraction so a malformed response
+        # body still gets logged for debugging.
+        if response_trace is not None:
+            response_trace.append(provider_response)
+
         output = _extract_response_output(provider_response)
         return _ProviderCallResult(
             output=output,
