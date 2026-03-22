@@ -539,8 +539,8 @@ class DaemonServer:
             used_fallback,
         )
 
-        # Periodic HP status (every 10 turns, on p1's turn to avoid duplicates)
-        if request.turn_id % 10 == 0 and player_id == "p1":
+        # Periodic HP status (every 10 turns, on either player's turn)
+        if request.turn_id % 10 == 0:
             try:
                 fighters = request.observation.fighters
                 if len(fighters) >= 2:
