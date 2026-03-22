@@ -59,6 +59,8 @@ while [[ $# -gt 0 ]]; do
         --no-replay)       RECORD_REPLAY=false; shift ;;
         --skip-mod-push)   SKIP_MOD_PUSH=true; shift ;;
         --dry-run)         DRY_RUN=true; shift ;;
+        --match-history)   EXTRA_DAEMON_ARGS+=("--match-history" "$2"); shift 2 ;;
+        --match-history=*) EXTRA_DAEMON_ARGS+=("--match-history" "${1#*=}"); shift ;;
         -h|--help)         head -25 "$0" | tail -23; exit 0 ;;
         -*)                EXTRA_DAEMON_ARGS+=("$1"); shift ;;
         *)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from dataclasses import dataclass, field
 from hashlib import sha256
 from random import Random
 from typing import TYPE_CHECKING, Any, cast
@@ -26,20 +27,68 @@ logger = logging.getLogger("yomi_daemon.character_selection")
 _TOOL_NAME = "submit_character_choice"
 
 
+@dataclass(frozen=True, slots=True)
+class CharacterSelectionTrace:
+    """Trace of a single player's character selection."""
+
+    player_slot: str
+    policy_id: str
+    character: str
+    reasoning: str
+    prompt_text: str
+    raw_response: object
+    match_history: list[MatchHistoryEntry] = field(default_factory=list)
+    fallback: bool = False
+
+    def to_dict(self) -> dict[str, object]:
+        result: dict[str, object] = {
+            "player_slot": self.player_slot,
+            "policy_id": self.policy_id,
+            "character": self.character,
+            "reasoning": self.reasoning,
+            "prompt_text": self.prompt_text,
+            "fallback": self.fallback,
+        }
+        if self.match_history:
+            result["match_history"] = [
+                {
+                    "your_character": e.your_character,
+                    "opponent_character": e.opponent_character,
+                    "result": e.result,
+                    "your_final_hp": e.your_final_hp,
+                    "opponent_final_hp": e.opponent_final_hp,
+                }
+                for e in self.match_history
+            ]
+        return result
+
+
+@dataclass(frozen=True, slots=True)
+class CharacterSelectionResult:
+    """Result of character selection with traces for both players."""
+
+    assignments: CharacterAssignments
+    traces: list[CharacterSelectionTrace]
+
+
+@dataclass(frozen=True, slots=True)
+class _PlayerResult:
+    character: str
+    trace: CharacterSelectionTrace
+
+
 async def resolve_character_assignments(
     config: "DaemonRuntimeConfig",
     *,
     match_history: dict[str, list[MatchHistoryEntry]] | None = None,
-) -> CharacterAssignments:
+) -> CharacterSelectionResult:
     """Resolve character assignments for llm_choice mode.
 
     For provider-backed policies, calls the LLM with the character selection prompt.
     For baseline policies, picks a random character seeded by trace_seed.
     Both players are resolved concurrently.
 
-    Args:
-        config: The daemon runtime config.
-        match_history: Per-player match history keyed by player slot ("p1", "p2").
+    Returns a CharacterSelectionResult with assignments and reasoning traces.
     """
     p1_policy_id = config.policy_mapping.p1
     p2_policy_id = config.policy_mapping.p2
@@ -67,17 +116,20 @@ async def resolve_character_assignments(
         timeout_ms=config.decision_timeout_ms,
     )
 
-    p1_char, p2_char = await asyncio.gather(p1_coro, p2_coro)
+    p1_result, p2_result = await asyncio.gather(p1_coro, p2_coro)
 
     logger.info(
         "LLM character selection: P1 (%s) -> %s, P2 (%s) -> %s",
         p1_policy_id,
-        p1_char,
+        p1_result.character,
         p2_policy_id,
-        p2_char,
+        p2_result.character,
     )
 
-    return CharacterAssignments(p1=p1_char, p2=p2_char)
+    return CharacterSelectionResult(
+        assignments=CharacterAssignments(p1=p1_result.character, p2=p2_result.character),
+        traces=[p1_result.trace, p2_result.trace],
+    )
 
 
 async def _resolve_for_player(
@@ -89,10 +141,20 @@ async def _resolve_for_player(
     trace_seed: int,
     match_history: list[MatchHistoryEntry] | None,
     timeout_ms: int,
-) -> str:
+) -> _PlayerResult:
     """Resolve a character for a single player."""
     if policy_config.provider == "baseline":
-        return _random_character(trace_seed=trace_seed, salt=f"char_select:{player_slot.value}")
+        char = _random_character(trace_seed=trace_seed, salt=f"char_select:{player_slot.value}")
+        trace = CharacterSelectionTrace(
+            player_slot=player_slot.value,
+            policy_id=policy_id,
+            character=char,
+            reasoning="baseline random selection",
+            prompt_text="",
+            raw_response=None,
+            fallback=False,
+        )
+        return _PlayerResult(character=char, trace=trace)
 
     try:
         return await _llm_character_select(
@@ -109,7 +171,17 @@ async def _resolve_for_player(
             player_slot.value,
             policy_id,
         )
-        return _random_character(trace_seed=trace_seed, salt=f"char_select:{player_slot.value}")
+        char = _random_character(trace_seed=trace_seed, salt=f"char_select:{player_slot.value}")
+        trace = CharacterSelectionTrace(
+            player_slot=player_slot.value,
+            policy_id=policy_id,
+            character=char,
+            reasoning="fallback to random after LLM failure",
+            prompt_text="",
+            raw_response=None,
+            fallback=True,
+        )
+        return _PlayerResult(character=char, trace=trace)
 
 
 def _random_character(*, trace_seed: int, salt: str) -> str:
@@ -129,7 +201,7 @@ async def _llm_character_select(
     opponent_policy_id: str,
     match_history: list[MatchHistoryEntry] | None,
     timeout_ms: int,
-) -> str:
+) -> _PlayerResult:
     """Call the LLM to choose a character."""
     prompt_text = render_character_select_prompt(
         player_id=player_slot.value,
@@ -154,11 +226,28 @@ async def _llm_character_select(
     else:
         raise ValueError(f"Unsupported provider for character selection: {provider}")
 
-    return _parse_character_choice(raw)
+    character, reasoning = _parse_character_choice(raw)
+
+    logger.info("Character selection reasoning: %s", reasoning)
+
+    trace = CharacterSelectionTrace(
+        player_slot=player_slot.value,
+        policy_id=policy_id,
+        character=character,
+        reasoning=reasoning,
+        prompt_text=prompt_text,
+        raw_response=raw,
+        match_history=list(match_history) if match_history else [],
+        fallback=False,
+    )
+    return _PlayerResult(character=character, trace=trace)
 
 
-def _parse_character_choice(raw: object) -> str:
-    """Extract and validate the character choice from provider response."""
+def _parse_character_choice(raw: object) -> tuple[str, str]:
+    """Extract and validate the character choice from provider response.
+
+    Returns (character, reasoning) tuple.
+    """
     if isinstance(raw, str):
         # Try to extract JSON from text
         try:
@@ -178,10 +267,8 @@ def _parse_character_choice(raw: object) -> str:
         raw_dict = cast(dict[str, object], raw)
         character = raw_dict.get("character")
         if isinstance(character, str) and character in VALID_CHARACTERS:
-            reasoning = raw_dict.get("reasoning", "")
-            if reasoning:
-                logger.info("Character selection reasoning: %s", reasoning)
-            return character
+            reasoning = str(raw_dict.get("reasoning", ""))
+            return character, reasoning
 
     raise ValueError(f"Could not parse valid character from response: {raw!r}")
 

@@ -75,6 +75,7 @@ class DaemonServer:
         runtime_config: "DaemonRuntimeConfig | None" = None,
         auth_secret: str | None = None,
         replay_capture_config: ReplayCaptureConfig | None = None,
+        match_history: dict[str, Any] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self.host = host
@@ -82,6 +83,7 @@ class DaemonServer:
         self._runtime_config = runtime_config
         self._auth_secret = auth_secret
         self._replay_capture_config = replay_capture_config or ReplayCaptureConfig()
+        self._match_history = match_history
         self.runtime_config = ServerRuntimeConfig(
             policy_mapping=policy_mapping
             if policy_mapping is not None
@@ -289,6 +291,16 @@ class DaemonServer:
                                 },
                             ).to_dict()
                         )
+
+                        # Persist character selection traces
+                        if session.character_selection_traces:
+                            traces_path = writer.run_dir / "character_selection.json"
+                            import json as _json
+
+                            traces_data = [t.to_dict() for t in session.character_selection_traces]
+                            traces_path.write_text(
+                                _json.dumps(traces_data, indent=2) + "\n", encoding="utf-8"
+                            )
 
                     # Dedup: skip if we've already dispatched for this
                     # (player_id, state_hash).  The mod may fire the same
@@ -694,12 +706,17 @@ class DaemonServer:
 
         # Resolve LLM character selection before building session
         config_snapshot = self.runtime_config.config_snapshot
+        char_select_traces: list[Any] = []
         if (
             self._runtime_config is not None
             and self._runtime_config.character_selection.mode is CharacterSelectionMode.LLM_CHOICE
         ):
             self.logger.info("Resolving LLM character choices for session %s...", session_id)
-            assignments = await resolve_character_assignments(self._runtime_config)
+            char_result = await resolve_character_assignments(
+                self._runtime_config, match_history=self._match_history
+            )
+            assignments = char_result.assignments
+            char_select_traces = char_result.traces
             # Replace character_selection in config snapshot with concrete assignments
             if config_snapshot is not None:
                 config_snapshot = ConfigPayload(
@@ -729,6 +746,8 @@ class DaemonServer:
             policy_mapping=self.runtime_config.policy_mapping,
             config_snapshot=config_snapshot,
         )
+        if char_select_traces:
+            session.character_selection_traces = char_select_traces
         await connection.send(json.dumps(self._build_hello_ack_envelope(session).to_dict()))
         return session
 

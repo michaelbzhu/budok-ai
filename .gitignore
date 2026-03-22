@@ -13,6 +13,7 @@ htmlcov/
 .cache/
 runs/*
 !runs/.gitkeep
+tournaments/
 dist/
 .env
 *.env

@@ -134,24 +134,29 @@ def test_character_select_schema_structure():
 
 def test_parse_valid_tool_output():
     """Parse a valid dict response."""
-    result = _parse_character_choice(
+    character, reasoning = _parse_character_choice(
         {"reasoning": "strong zoning", "character": "Wizard"}
     )
-    assert result == "Wizard"
+    assert character == "Wizard"
+    assert reasoning == "strong zoning"
 
 
 def test_parse_json_string():
     """Parse a JSON string response."""
-    result = _parse_character_choice('{"reasoning": "fast", "character": "Ninja"}')
-    assert result == "Ninja"
+    character, reasoning = _parse_character_choice(
+        '{"reasoning": "fast", "character": "Ninja"}'
+    )
+    assert character == "Ninja"
+    assert reasoning == "fast"
 
 
 def test_parse_json_in_text():
     """Parse JSON embedded in text."""
-    result = _parse_character_choice(
+    character, reasoning = _parse_character_choice(
         'Here is my choice: {"reasoning": "grabs", "character": "Robot"} done.'
     )
-    assert result == "Robot"
+    assert character == "Robot"
+    assert reasoning == "grabs"
 
 
 def test_parse_invalid_character_raises():
@@ -237,18 +242,19 @@ def _make_config(
 def test_baseline_policies_get_random_characters():
     """Baseline policies should get seeded random characters."""
     config = _make_config()
-    assignments = asyncio.run(resolve_character_assignments(config))
-    assert assignments.p1 in VALID_CHARACTERS
-    assert assignments.p2 in VALID_CHARACTERS
+    result = asyncio.run(resolve_character_assignments(config))
+    assert result.assignments.p1 in VALID_CHARACTERS
+    assert result.assignments.p2 in VALID_CHARACTERS
+    assert len(result.traces) == 2
 
 
 def test_baseline_assignments_are_deterministic():
     """Same seed should produce same baseline character assignments."""
     config = _make_config()
-    a1 = asyncio.run(resolve_character_assignments(config))
-    a2 = asyncio.run(resolve_character_assignments(config))
-    assert a1.p1 == a2.p1
-    assert a1.p2 == a2.p2
+    r1 = asyncio.run(resolve_character_assignments(config))
+    r2 = asyncio.run(resolve_character_assignments(config))
+    assert r1.assignments.p1 == r2.assignments.p1
+    assert r1.assignments.p2 == r2.assignments.p2
 
 
 def test_provider_policy_calls_llm():
@@ -265,10 +271,15 @@ def test_provider_policy_calls_llm():
         new_callable=AsyncMock,
         return_value=mock_response,
     ):
-        assignments = asyncio.run(resolve_character_assignments(config))
+        result = asyncio.run(resolve_character_assignments(config))
 
-    assert assignments.p1 == "Wizard"
-    assert assignments.p2 in VALID_CHARACTERS  # p2 is baseline, gets random
+    assert result.assignments.p1 == "Wizard"
+    assert result.assignments.p2 in VALID_CHARACTERS  # p2 is baseline, gets random
+    # Check traces
+    p1_trace = result.traces[0]
+    assert p1_trace.character == "Wizard"
+    assert p1_trace.reasoning == "zoning is strong"
+    assert not p1_trace.fallback
 
 
 def test_provider_failure_falls_back_to_random():
@@ -283,7 +294,8 @@ def test_provider_failure_falls_back_to_random():
         new_callable=AsyncMock,
         side_effect=RuntimeError("API error"),
     ):
-        assignments = asyncio.run(resolve_character_assignments(config))
+        result = asyncio.run(resolve_character_assignments(config))
 
-    assert assignments.p1 in VALID_CHARACTERS  # fell back to random
-    assert assignments.p2 in VALID_CHARACTERS
+    assert result.assignments.p1 in VALID_CHARACTERS  # fell back to random
+    assert result.assignments.p2 in VALID_CHARACTERS
+    assert result.traces[0].fallback is True
