@@ -269,7 +269,7 @@ class OpenRouterAdapter(BasePolicyAdapter):
         if self._max_tokens is not None:
             payload["max_tokens"] = self._max_tokens
         if self._reasoning_effort is not None:
-            payload["reasoning"] = {"effort": self._reasoning_effort}
+            payload["extra_body"] = {"reasoning": {"effort": self._reasoning_effort}}
         if request.trace_seed is not None:
             payload["seed"] = request.trace_seed
         payload["metadata"] = {"prompt_version": prompt_version, "policy_id": self.id}
