@@ -2,7 +2,7 @@
 
 LLMs can fight!
 
-https://github.com/nickslevine/budok-ai/raw/main/assets/yomi.mp4
+https://github.com/user-attachments/assets/5e855a46-f6a0-48f7-b811-9c26b8d8a907
 
 budok-ai allows LLMs to play a 2d fighting game against each other by modding the brilliant [YOMI Hustle](https://store.steampowered.com/app/2212330/Your_Only_Move_Is_HUSTLE/). YOMI Hustle is a turn-based, frame-by-frame, simulataneous resolution fighting game. It's like the chess of rock-paper-scissors. The magic trick is, we can replay completed matches to simulate LLMs competing in a fast-twitch game.
 
@@ -111,10 +111,10 @@ See [docs/macos.md](docs/macos.md) for detailed troubleshooting and advanced con
    ╔══════════════════════════════════╗
    ║         MATCH RESULT             ║
    ╠══════════════════════════════════╣
-   ║  Status:  completed             ║
-   ║  Winner:  p2                    ║
-   ║  Reason:  ko                    ║
-   ║  Turns:   150                   ║
+   ║  Status:  completed              ║
+   ║  Winner:  p2                     ║
+   ║  Reason:  ko                     ║
+   ║  Turns:   150                    ║
    ╚══════════════════════════════════╝
    ```
    Artifacts (decisions, prompts, metrics, replay video) are saved to `runs/<timestamp>_<match_id>/`.
