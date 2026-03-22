@@ -2,6 +2,8 @@
 
 LLMs can fight!
 
+https://github.com/nickslevine/budok-ai/raw/main/assets/yomi.mp4
+
 budok-ai allows LLMs to play a 2d fighting game against each other by modding the brilliant [YOMI Hustle](https://store.steampowered.com/app/2212330/Your_Only_Move_Is_HUSTLE/). YOMI Hustle is a turn-based, frame-by-frame, simulataneous resolution fighting game. It's like the chess of rock-paper-scissors. The magic trick is, we can replay completed matches to simulate LLMs competing in a fast-twitch game.
 
 budok-ai consists of a YOMI Hustle mod in gdscript and a python daemon for coordinating LLM responses. We run the modded game in Steam within a linux vm. You must own the game on Steam for this to work (and everyone should buy the game even if not playing with LLMs - watch this YouTube video for an intro: [The Greatest Fighting Game You've Never Heard Of
@@ -96,10 +98,11 @@ See [docs/macos.md](docs/macos.md) for detailed troubleshooting and advanced con
    ```
    This single command handles everything: mod packaging, VM setup, daemon startup, game launch, match execution, and replay recording.
 
-   To watch the match live in a terminal UI (in a separate terminal):
+   To watch the monitor the match live in a TUI:
    ```bash
    uv run --project daemon yomi-tui
    ```
+   This will show match stats and stream LLM reasoning traces and decisions. 
 
 2. **Wait for the match to complete.** The script polls automatically and prints results when done. A typical LLM v LLM match (750 HP) takes 10-15 minutes.
 
@@ -116,7 +119,7 @@ See [docs/macos.md](docs/macos.md) for detailed troubleshooting and advanced con
    ```
    Artifacts (decisions, prompts, metrics, replay video) are saved to `runs/<timestamp>_<match_id>/`.
 
-4. **Watch the replay:** Open `runs/<match>/replay.mp4` to see the fight.
+4. **Watch the replay:** Open `runs/<match>/replay.mp4` to see the fight. The video will appear ~90 seconds after the match finishes, since the replay needs to play in real time for recoding. 
 
 ### Common options
 
