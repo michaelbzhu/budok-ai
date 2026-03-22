@@ -9,11 +9,10 @@ budok-ai consists of a YOMI Hustle mod in gdscript and a python daemon for coord
 
 ## Setup
 
-Currently macOS-only (Apple Silicon). The game runs headlessly in a Linux VM via OrbStack; the daemon runs natively on your Mac.
+Only tested on MacOS. The game runs headlessly in a Linux VM via OrbStack. 
 
 ### Prerequisites
 
-- macOS with Apple Silicon
 - [YOMI Hustle](https://store.steampowered.com/app/2212330/Your_Only_Move_Is_HUSTLE/) on Steam (you must own the game)
 - A Steam account with Steam Guard enabled (needed for downloading game files)
 - An API key from [Anthropic](https://console.anthropic.com/), [OpenAI](https://platform.openai.com/), or [OpenRouter](https://openrouter.ai/) (for LLM-backed policies)
@@ -96,6 +95,11 @@ See [docs/macos.md](docs/macos.md) for detailed troubleshooting and advanced con
    scripts/run_match.sh
    ```
    This single command handles everything: mod packaging, VM setup, daemon startup, game launch, match execution, and replay recording.
+
+   To watch the match live in a terminal UI (in a separate terminal):
+   ```bash
+   uv run --project daemon yomi-tui
+   ```
 
 2. **Wait for the match to complete.** The script polls automatically and prints results when done. A typical LLM v LLM match (750 HP) takes 10-15 minutes.
 
