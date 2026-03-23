@@ -21,6 +21,24 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+# ─── Cleanup trap ─────────────────────────────────────────────────────────────
+# Kill all child processes on exit to prevent orphan accumulation.
+# This is critical — without it, each killed tournament run leaks tee/grep/sed/
+# python/sleep processes that eventually exhaust the system's process table.
+cleanup_tournament() {
+    # Kill all processes in this process group
+    local pgid
+    pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
+    if [ -n "$pgid" ] && [ "$pgid" != "0" ]; then
+        # Kill the process group, but ignore errors (we may already be dying)
+        kill -- -"$pgid" 2>/dev/null || true
+    fi
+    # Also kill any daemon/game processes
+    pkill -f "yomi-daemon.*tournament" 2>/dev/null || true
+    orb run -m ubuntu bash -c "ps aux | grep YourOnly | grep -v grep | awk '{print \$2}' | xargs -r kill -9" 2>/dev/null || true
+}
+trap cleanup_tournament EXIT
+
 # ─── Defaults ────────────────────────────────────────────────────────────────
 
 BASE_CONFIG="daemon/config/tournament_bracket.json"
