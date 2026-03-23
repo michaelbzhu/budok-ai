@@ -7,7 +7,9 @@ import json
 import logging
 from dataclasses import dataclass, field
 from hashlib import sha256
+from json import JSONDecodeError
 from random import Random
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, cast
 
 from yomi_daemon.prompt import (
@@ -273,6 +275,20 @@ def _parse_character_choice(raw: object) -> tuple[str, str]:
     raise ValueError(f"Could not parse valid character from response: {raw!r}")
 
 
+def _extract_json_object(text: str) -> Mapping[str, object] | None:
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            parsed, _end = decoder.raw_decode(text[index:])
+        except JSONDecodeError:
+            continue
+        if isinstance(parsed, Mapping):
+            return cast(Mapping[str, object], parsed)
+    return None
+
+
 async def _call_anthropic(
     *,
     policy_config: "PolicyConfig",
@@ -402,9 +418,29 @@ async def _call_openai_compat(
     if isinstance(parsed, dict):
         return parsed
 
+    tool_calls = message.get("tool_calls")
+    if isinstance(tool_calls, list):
+        for tool_call in tool_calls:
+            if not isinstance(tool_call, dict):
+                continue
+            function = tool_call.get("function")
+            if not isinstance(function, dict):
+                continue
+            arguments = function.get("arguments")
+            if isinstance(arguments, str):
+                decoded = _extract_json_object(arguments)
+                if decoded is not None:
+                    return dict(decoded)
+
     # Fall back to content text
     content = message.get("content", "")
     if isinstance(content, str) and content.strip():
         return content
+
+    reasoning = message.get("reasoning")
+    if isinstance(reasoning, str) and reasoning.strip():
+        decoded = _extract_json_object(reasoning)
+        if decoded is not None:
+            return dict(decoded)
 
     raise ValueError(f"No usable output from {provider} character selection response")

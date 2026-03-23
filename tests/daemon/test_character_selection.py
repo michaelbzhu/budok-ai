@@ -8,6 +8,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from yomi_daemon.character_selection import (
+    _call_openai_compat,
+    _extract_json_object,
     _parse_character_choice,
     _random_character,
     resolve_character_assignments,
@@ -159,6 +161,14 @@ def test_parse_json_in_text():
     assert reasoning == "grabs"
 
 
+def test_extract_json_object_from_reasoning_text():
+    """JSON object extraction tolerates prefixed/suffixed prose."""
+    extracted = _extract_json_object(
+        'analysis first {"reasoning": "zoning", "character": "Wizard"} trailing'
+    )
+    assert extracted == {"reasoning": "zoning", "character": "Wizard"}
+
+
 def test_parse_invalid_character_raises():
     """Invalid character name should raise ValueError."""
     with pytest.raises(ValueError, match="Could not parse"):
@@ -299,3 +309,54 @@ def test_provider_failure_falls_back_to_random():
     assert result.assignments.p1 in VALID_CHARACTERS  # fell back to random
     assert result.assignments.p2 in VALID_CHARACTERS
     assert result.traces[0].fallback is True
+
+
+def test_openrouter_character_selection_recovers_json_from_reasoning():
+    """OpenRouter-compatible character selection can recover JSON from reasoning."""
+
+    class _FakeResponse:
+        def model_dump(self, *, mode: str = "json") -> dict[str, object]:
+            assert mode == "json"
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": None,
+                            "reasoning": (
+                                'analysis {"reasoning": "best blind pick", '
+                                '"character": "Wizard"} trailing'
+                            ),
+                        }
+                    }
+                ]
+            }
+
+    class _FakeCompletions:
+        async def create(self, **_: object) -> _FakeResponse:
+            return _FakeResponse()
+
+    class _FakeChat:
+        def __init__(self) -> None:
+            self.completions = _FakeCompletions()
+
+    class _FakeAsyncOpenAI:
+        def __init__(self, **_: object) -> None:
+            self.chat = _FakeChat()
+
+    policy_config = PolicyConfig(
+        provider="openrouter",
+        model="z-ai/glm-5",
+        credential=ProviderCredential(env_var="OPENROUTER_API_KEY", value="test-key"),
+    )
+
+    with patch("openai.AsyncOpenAI", _FakeAsyncOpenAI):
+        raw = asyncio.run(
+            _call_openai_compat(
+                policy_config=policy_config,
+                prompt_text="pick a character",
+                timeout_ms=1000,
+                provider="openrouter",
+            )
+        )
+
+    assert raw == {"reasoning": "best blind pick", "character": "Wizard"}

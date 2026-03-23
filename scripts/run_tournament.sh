@@ -10,7 +10,7 @@
 # Options:
 #   --config PATH        Base tournament config JSON (default: daemon/config/tournament_bracket.json)
 #   --best-of N          Games per series (default: 3)
-#   --resume DIR         Resume from an existing tournament directory
+#   --resume [DIR]       Resume from a tournament directory, or the latest one if omitted
 #   --skip-mod-push      Skip mod packaging/push for all matches
 #   --no-replay          Disable replay recording
 #   --dry-run            Print bracket without running
@@ -26,13 +26,21 @@ cd "$REPO_ROOT"
 # This is critical — without it, each killed tournament run leaks tee/grep/sed/
 # python/sleep processes that eventually exhaust the system's process table.
 cleanup_tournament() {
-    # Kill all processes in this process group
-    local pgid
-    pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
-    if [ -n "$pgid" ] && [ "$pgid" != "0" ]; then
-        # Kill the process group, but ignore errors (we may already be dying)
-        kill -- -"$pgid" 2>/dev/null || true
+    local exit_code=$?
+
+    # On a clean exit, avoid killing our own process group. Doing so also
+    # terminates the parent caffeinate job and makes a normal completion look
+    # like the tournament was externally killed.
+    if [ "$exit_code" -ne 0 ] && [ "${TOURNEY_ACTIVE:-false}" = true ]; then
+        # Kill all processes in this process group
+        local pgid
+        pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')
+        if [ -n "$pgid" ] && [ "$pgid" != "0" ]; then
+            # Kill the process group, but ignore errors (we may already be dying)
+            kill -- -"$pgid" 2>/dev/null || true
+        fi
     fi
+
     # Also kill any daemon/game processes
     pkill -f "yomi-daemon.*tournament" 2>/dev/null || true
     orb run -m ubuntu bash -c "ps aux | grep YourOnly | grep -v grep | awk '{print \$2}' | xargs -r kill -9" 2>/dev/null || true
@@ -47,6 +55,7 @@ RESUME_DIR=""
 SKIP_MOD_PUSH=false
 NO_REPLAY=false
 DRY_RUN=false
+TOURNEY_ACTIVE=false
 
 # Seeded bracket: #1 through #8 in seed order
 SEEDS=(
@@ -68,7 +77,15 @@ while [[ $# -gt 0 ]]; do
         --config=*)        BASE_CONFIG="${1#*=}"; shift ;;
         --best-of)         BEST_OF="$2"; shift 2 ;;
         --best-of=*)       BEST_OF="${1#*=}"; shift ;;
-        --resume)          RESUME_DIR="$2"; shift 2 ;;
+        --resume)
+            if [[ $# -gt 1 && "$2" != -* ]]; then
+                RESUME_DIR="$2"
+                shift 2
+            else
+                RESUME_DIR="__LATEST__"
+                shift
+            fi
+            ;;
         --resume=*)        RESUME_DIR="${1#*=}"; shift ;;
         --skip-mod-push)   SKIP_MOD_PUSH=true; shift ;;
         --no-replay)       NO_REPLAY=true; shift ;;
@@ -91,7 +108,15 @@ short_name() {
 # ─── Tournament directory ────────────────────────────────────────────────────
 
 if [ -n "$RESUME_DIR" ]; then
-    TOURNEY_DIR="$RESUME_DIR"
+    if [ "$RESUME_DIR" = "__LATEST__" ]; then
+        TOURNEY_DIR=$(ls -td tournaments/*_bracket/ 2>/dev/null | head -n 1 | sed 's:/$::')
+        if [ -z "$TOURNEY_DIR" ]; then
+            err "No tournament directories found under tournaments/"
+            exit 1
+        fi
+    else
+        TOURNEY_DIR="$RESUME_DIR"
+    fi
     if [ ! -f "$TOURNEY_DIR/bracket.json" ]; then
         err "No bracket.json found in $TOURNEY_DIR"
         exit 1
@@ -231,6 +256,8 @@ if [ "$DRY_RUN" = true ]; then
 fi
 
 # ─── Run bracket ─────────────────────────────────────────────────────────────
+
+TOURNEY_ACTIVE=true
 
 # Generate a per-match config by patching policy_mapping in the base config
 generate_match_config() {
@@ -382,7 +409,7 @@ run_game() {
     # Temporarily disable errexit/pipefail for the pipeline — grep exits 1 when the
     # pipe closes with no pending match, and tee/sed may also exit non-zero.
     set +eo pipefail
-    scripts/run_match.sh "${match_args[@]}" 2>&1 \
+    scripts/run_match.sh "${match_args[@]}" </dev/null 2>&1 \
         | tee "$game_log" \
         | grep --line-buffered -iE "character selection resolved|HP_STATUS|FALLBACK|ERROR|malformed|illegal|timeout|refused|failed|MATCH RESULT|Status:|Winner:|Reason:|Turns:" \
         | sed 's/^/[tournament]   /' >&2
@@ -606,40 +633,64 @@ if [ "$SKIP_MOD_PUSH" = false ]; then
     FIRST_MATCH_ARGS=()  # run_match.sh will handle it
 fi
 
-# Read bracket and iterate through rounds
-for round_idx in 0 1 2; do
-    round_series=$(python3 -c "
+# Keep consuming newly-available series until the bracket produces a champion
+# or there are no playable series left.
+while true; do
+    ready_series=$(python3 -c "
 import json
 bracket = json.load(open('$TOURNEY_DIR/bracket.json'))
-if $round_idx < len(bracket['rounds']):
-    rnd = bracket['rounds'][$round_idx]
+for round_idx, rnd in enumerate(bracket['rounds']):
     for s in rnd:
         if s['status'] != 'completed' and s.get('high_seed') and s.get('low_seed'):
-            print(f\"{s['series_id']}|{s['high_seed']['policy_id']}|{s['low_seed']['policy_id']}|{s['high_seed']['seed']}|{s['low_seed']['seed']}\")
+            print(f\"{round_idx}|{s['series_id']}|{s['high_seed']['policy_id']}|{s['low_seed']['policy_id']}|{s['high_seed']['seed']}|{s['low_seed']['seed']}\")
 ")
 
-    if [ -z "$round_series" ]; then
-        continue
+    champion=$(python3 -c "
+import json
+bracket = json.load(open('$TOURNEY_DIR/bracket.json'))
+print('yes' if bracket.get('champion') else '')
+")
+    if [ -n "$champion" ]; then
+        break
     fi
 
-    log "Round ${round_idx}: $(echo "$round_series" | wc -l | tr -d ' ') series to play"
-    while IFS='|' read -r series_id p1_policy p2_policy p1_seed p2_seed; do
-        log "Starting series: ${series_id}"
-        run_series "$series_id" "$p1_policy" "$p2_policy" "$p1_seed" "$p2_seed" || {
+    if [ -z "$ready_series" ]; then
+        pending_series=$(python3 -c "
+import json
+bracket = json.load(open('$TOURNEY_DIR/bracket.json'))
+print(sum(1 for rnd in bracket['rounds'] for s in rnd if s['status'] != 'completed'))
+")
+        if [ "$pending_series" -gt 0 ]; then
+            log "No playable series remain; tournament is incomplete and can be resumed later."
+        fi
+        break
+    fi
+
+    log "Playable series this pass: $(printf '%s\n' "$ready_series" | wc -l | tr -d ' ')"
+    while IFS='|' read -r round_idx series_id p1_policy p2_policy p1_seed p2_seed; do
+        [ -n "$series_id" ] || continue
+        log "Starting round ${round_idx} series: ${series_id}"
+        run_series "$series_id" "$p1_policy" "$p2_policy" "$p1_seed" "$p2_seed" </dev/null || {
             err "Series ${series_id} failed, continuing bracket"
         }
-        log "Finished series: ${series_id}"
+        log "Finished round ${round_idx} series: ${series_id}"
         # After first match, skip mod push for remaining
         SKIP_MOD_PUSH=true
-    done <<< "$round_series"
-    log "Round ${round_idx} complete"
+    done <<< "$ready_series"
 done
 
 # ─── Print final results ─────────────────────────────────────────────────────
 
+FINAL_STATUS=$(python3 -c "
+import json
+bracket = json.load(open('$TOURNEY_DIR/bracket.json'))
+print('TOURNAMENT COMPLETE' if bracket.get('champion') else 'TOURNAMENT IN PROGRESS')
+")
+printf -v FINAL_TITLE_LINE '║  %-56s║' "$FINAL_STATUS"
+
 log ""
 log "╔══════════════════════════════════════════════════════════╗"
-log "║              TOURNAMENT COMPLETE                        ║"
+log "$FINAL_TITLE_LINE"
 log "╠══════════════════════════════════════════════════════════╣"
 
 python3 -c "

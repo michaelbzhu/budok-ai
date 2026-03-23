@@ -6,6 +6,7 @@ import json
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
+from json import JSONDecodeError
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI
@@ -49,6 +50,21 @@ class OpenRouterTransport(Protocol):
 
 class OpenRouterProviderError(RuntimeError):
     """Raised when the upstream OpenRouter request fails before parsing."""
+
+
+class OpenRouterProviderTraceError(OpenRouterProviderError):
+    """Provider error that preserves request/response payloads for prompt traces."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        request_payload: JsonObject,
+        response_payload: JsonObject | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.request_payload = request_payload
+        self.response_payload = response_payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,21 +187,35 @@ class OpenRouterAdapter(BasePolicyAdapter):
         response_attempts: list[JsonObject] = []
 
         async def decision_provider(_: DecisionRequest) -> object:
-            call = await self._call_provider(
-                prompt_text=rendered_prompt.prompt_text,
-                request=request,
-                attempt_kind="initial",
-            )
+            try:
+                call = await self._call_provider(
+                    prompt_text=rendered_prompt.prompt_text,
+                    request=request,
+                    attempt_kind="initial",
+                )
+            except OpenRouterProviderTraceError as exc:
+                request_attempts.append(deepcopy(exc.request_payload))
+                if exc.response_payload is not None:
+                    response_attempts.append(deepcopy(exc.response_payload))
+                raise
+
             request_attempts.append(call.request_payload)
             response_attempts.append(call.response_payload)
             return call.output
 
         async def correction_callback(correction_prompt: str) -> object:
-            call = await self._call_provider(
-                prompt_text=correction_prompt,
-                request=request,
-                attempt_kind="correction",
-            )
+            try:
+                call = await self._call_provider(
+                    prompt_text=correction_prompt,
+                    request=request,
+                    attempt_kind="correction",
+                )
+            except OpenRouterProviderTraceError as exc:
+                request_attempts.append(deepcopy(exc.request_payload))
+                if exc.response_payload is not None:
+                    response_attempts.append(deepcopy(exc.response_payload))
+                raise
+
             request_attempts.append(call.request_payload)
             response_attempts.append(call.response_payload)
             return call.output
@@ -239,7 +269,14 @@ class OpenRouterAdapter(BasePolicyAdapter):
             title=self._title,
             categories=self._categories,
         )
-        output = _extract_response_output(provider_response)
+        try:
+            output = _extract_response_output(provider_response)
+        except OpenRouterProviderError as exc:
+            raise OpenRouterProviderTraceError(
+                str(exc),
+                request_payload=provider_request,
+                response_payload=provider_response,
+            ) from exc
         return _ProviderCallResult(
             output=output,
             request_payload=provider_request,
@@ -411,4 +448,24 @@ def _extract_response_output(response_payload: JsonObject) -> object:
         if text_fragments:
             return "".join(text_fragments)
 
+    reasoning = message_raw.get("reasoning")
+    if isinstance(reasoning, str) and reasoning.strip():
+        json_candidate = _extract_json_object(reasoning)
+        if json_candidate is not None:
+            return cast(JsonObject, json_candidate)
+
     raise OpenRouterProviderError("OpenRouter response did not include structured content")
+
+
+def _extract_json_object(text: str) -> Mapping[str, object] | None:
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            parsed, _end = decoder.raw_decode(text[index:])
+        except JSONDecodeError:
+            continue
+        if isinstance(parsed, Mapping):
+            return cast(Mapping[str, object], parsed)
+    return None
