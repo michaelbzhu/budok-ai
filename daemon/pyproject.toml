@@ -12,6 +12,7 @@ dependencies = [
   "anthropic>=0.84.0",
   "jsonschema>=4.23.0",
   "openai>=2.26.0",
+  "pillow>=12.1.1",
   "websockets>=15.0.1",
   "textual>=3.0.0",
 ]
@@ -20,6 +21,7 @@ dependencies = [
 yomi-daemon = "yomi_daemon.cli:main"
 yomi-daemon-check-uv = "yomi_daemon.tooling:main"
 yomi-tui = "yomi_daemon.tui:main"
+yomi-analysis = "yomi_daemon.analysis.cli:main"
 
 [dependency-groups]
 dev = [
