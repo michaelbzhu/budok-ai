@@ -574,9 +574,14 @@ class DaemonServer:
             logger=self.logger,
         )
 
+        effective_replay_path = replay_path
+        pulled_replay_path: str | None = None
+
         # Pull the .replay file if available
         if replay_path:
+            writer.update_replay_path(replay_path)
             await capture.pull_replay_file(replay_path)
+            pulled_replay_path = replay_path
 
         self.logger.info(
             "Session %s: waiting for replay events (timeout 120s)...",
@@ -603,8 +608,23 @@ class DaemonServer:
                         continue
 
                     event = cast(Event, envelope.payload)
+                    writer.append_event(event.to_dict())
 
-                    if event.event is EventName.REPLAY_STARTED:
+                    if event.event is EventName.REPLAY_SAVED:
+                        replay_path_raw = event.details.get("replay_path")
+                        if isinstance(replay_path_raw, str) and replay_path_raw:
+                            effective_replay_path = replay_path_raw
+                            writer.update_replay_path(replay_path_raw)
+                            if pulled_replay_path != replay_path_raw:
+                                await capture.pull_replay_file(replay_path_raw)
+                                pulled_replay_path = replay_path_raw
+                        else:
+                            self.logger.warning(
+                                "Session %s: ReplaySaved missing replay_path",
+                                session.session_id,
+                            )
+
+                    elif event.event is EventName.REPLAY_STARTED:
                         display = str(
                             event.details.get("display", self._replay_capture_config.display)
                         )
@@ -641,6 +661,10 @@ class DaemonServer:
                         video_path = await capture.stop_recording()
                         if video_path:
                             self.logger.info("Replay video saved to %s", video_path)
+                        if effective_replay_path and pulled_replay_path != effective_replay_path:
+                            writer.update_replay_path(effective_replay_path)
+                            await capture.pull_replay_file(effective_replay_path)
+                            pulled_replay_path = effective_replay_path
                         await capture.cleanup()
                         break
 
@@ -655,6 +679,9 @@ class DaemonServer:
                 video_path = await capture.stop_recording()
                 if video_path:
                     self.logger.info("Replay video saved to %s (after timeout)", video_path)
+            if effective_replay_path and pulled_replay_path != effective_replay_path:
+                writer.update_replay_path(effective_replay_path)
+                await capture.pull_replay_file(effective_replay_path)
             await capture.cleanup()
 
     async def _perform_handshake(

@@ -9,11 +9,16 @@ from typing import Any, cast
 
 from websockets.asyncio.client import connect
 
+from yomi_daemon import __version__
+from yomi_daemon.match import MatchMetadata, MatchSession
 from yomi_daemon.protocol import (
+    CURRENT_PROTOCOL_VERSION,
     ActionDecision,
     EventName,
     MessageType,
 )
+from yomi_daemon.server import DaemonServer
+from yomi_daemon.storage.writer import MatchArtifactWriter
 from yomi_daemon.storage.writer import RUNS_DIR
 from yomi_daemon.validation import parse_envelope
 
@@ -361,3 +366,168 @@ def test_event_forwarded_to_artifacts() -> None:
     events = (latest / "events.jsonl").read_text().strip().splitlines()
     event_names = [json.loads(e)["payload"]["event"] for e in events]
     assert EventName.DECISION_APPLIED.value in event_names
+
+
+def test_replay_saved_event_persists_match_replay_artifact(monkeypatch: Any) -> None:
+    """Late ReplaySaved should update artifacts and pull match.replay into the run dir."""
+
+    mid = unique_match_id()
+
+    async def fake_start_recording(
+        self: Any, display: str | None = None, max_duration_seconds: int = 120
+    ) -> bool:
+        self._started_display = display
+        self._started_duration = max_duration_seconds
+        return True
+
+    async def fake_stop_recording(self: Any) -> Any:
+        video_path = self._run_dir / "replay.mp4"
+        video_path.write_bytes(b"fake replay video")
+        return video_path
+
+    async def fake_pull_replay_file(self: Any, vm_replay_path: str) -> Any:
+        local_path = self._run_dir / "match.replay"
+        local_path.write_text(f"pulled from {vm_replay_path}\n", encoding="utf-8")
+        return local_path
+
+    async def fake_cleanup(self: Any) -> None:
+        return None
+
+    monkeypatch.setattr(
+        "yomi_daemon.server.ReplayCaptureSession.start_recording",
+        fake_start_recording,
+    )
+    monkeypatch.setattr(
+        "yomi_daemon.server.ReplayCaptureSession.stop_recording",
+        fake_stop_recording,
+    )
+    monkeypatch.setattr(
+        "yomi_daemon.server.ReplayCaptureSession.pull_replay_file",
+        fake_pull_replay_file,
+    )
+    monkeypatch.setattr(
+        "yomi_daemon.server.ReplayCaptureSession.cleanup",
+        fake_cleanup,
+    )
+
+    class FakeConnection:
+        def __init__(self, messages: list[str]) -> None:
+            self._messages = iter(messages)
+
+        def __aiter__(self) -> "FakeConnection":
+            return self
+
+        async def __anext__(self) -> str:
+            try:
+                return next(self._messages)
+            except StopIteration as exc:
+                raise StopAsyncIteration from exc
+
+    async def scenario() -> Any:
+        config = baseline_runtime_config()
+        server = DaemonServer(
+            port=0,
+            policy_mapping=config.policy_mapping,
+            config_snapshot=config.to_config_payload(),
+            runtime_config=config,
+        )
+        writer = MatchArtifactWriter.create(
+            match_id=mid,
+            manifest={
+                "match_id": mid,
+                "trace_seed": config.trace_seed,
+                "policy_mapping": config.policy_mapping.to_dict(),
+            },
+        )
+        writer.finalize(
+            match_ended={
+                "match_id": mid,
+                "winner": "p1",
+                "end_reason": "ko",
+                "total_turns": 1,
+                "end_tick": 500,
+                "end_frame": 60,
+                "errors": [],
+            }
+        )
+
+        replay_saved = json.dumps(
+            {
+                "type": MessageType.EVENT.value,
+                "version": CURRENT_PROTOCOL_VERSION.value,
+                "ts": "2026-03-12T00:01:01Z",
+                "payload": {
+                    "match_id": mid,
+                    "event": EventName.REPLAY_SAVED.value,
+                    "details": {
+                        "replay_path": "/vm/user/replay/autosave/test-match.replay"
+                    },
+                },
+            }
+        )
+        replay_started = json.dumps(
+            {
+                "type": MessageType.EVENT.value,
+                "version": CURRENT_PROTOCOL_VERSION.value,
+                "ts": "2026-03-12T00:01:02Z",
+                "payload": {
+                    "match_id": mid,
+                    "event": EventName.REPLAY_STARTED.value,
+                    "details": {"display": ":99"},
+                },
+            }
+        )
+        replay_ended = json.dumps(
+            {
+                "type": MessageType.EVENT.value,
+                "version": CURRENT_PROTOCOL_VERSION.value,
+                "ts": "2026-03-12T00:01:03Z",
+                "payload": {
+                    "match_id": mid,
+                    "event": EventName.REPLAY_ENDED.value,
+                    "details": {},
+                },
+            }
+        )
+        connection = FakeConnection([replay_saved, replay_started, replay_ended])
+        session = MatchSession(
+            session_id="session-test",
+            remote_address=None,
+            accepted_protocol_version=CURRENT_PROTOCOL_VERSION,
+            daemon_version=__version__,
+            policy_mapping=config.policy_mapping,
+            config_snapshot=config.to_config_payload(),
+            metadata=MatchMetadata(
+                game_version="1.0.0",
+                mod_version="0.1.0",
+                schema_version="v2",
+                match_id=mid,
+            ),
+        )
+
+        await server._handle_replay_capture(
+            session=session,
+            connection=cast(Any, connection),
+            match_id=mid,
+            writer=writer,
+            replay_path=None,
+        )
+
+        return writer.run_dir
+
+    latest = asyncio.run(scenario())
+
+    assert (latest / "match.replay").exists()
+    assert (latest / "replay.mp4").exists()
+
+    result = json.loads((latest / "result.json").read_text())
+    assert result["replay_path"] == "/vm/user/replay/autosave/test-match.replay"
+
+    replay_index = json.loads((latest / "replay_index.json").read_text())
+    assert replay_index["replay_path"] == "/vm/user/replay/autosave/test-match.replay"
+
+    events = (latest / "events.jsonl").read_text().strip().splitlines()
+    event_names = [json.loads(e)["payload"]["event"] for e in events]
+    assert EventName.REPLAY_SAVED.value in event_names
+    assert EventName.REPLAY_STARTED.value in event_names
+    assert EventName.REPLAY_ENDED.value in event_names

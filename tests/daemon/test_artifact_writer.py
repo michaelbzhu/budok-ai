@@ -610,3 +610,42 @@ def test_match_artifact_writer_finalizes_success_and_failure(tmp_path: Path) -> 
         "match_ended_payload": None,
         "details": {"recovered": False},
     }
+
+
+def test_match_artifact_writer_updates_replay_path_after_finalize(
+    tmp_path: Path,
+) -> None:
+    writer = MatchArtifactWriter.create(
+        match_id="match-006",
+        manifest=_manifest("match-006"),
+        runs_root=tmp_path,
+        started_at=datetime(2026, 3, 12, 14, 0, tzinfo=UTC),
+    )
+
+    writer.finalize(
+        completed_at=datetime(2026, 3, 12, 14, 0, 10, tzinfo=UTC),
+        match_ended=MatchEnded(
+            match_id="match-006",
+            winner="p2",
+            end_reason="ko",
+            total_turns=9,
+            end_tick=4200,
+            end_frame=90,
+            replay_path=None,
+            errors=(),
+        ),
+    )
+
+    updated = writer.update_replay_path(
+        "/vm/user/replay/autosave/match-006.replay",
+        updated_at=datetime(2026, 3, 12, 14, 0, 12, tzinfo=UTC),
+    )
+
+    assert updated.replay_path == "/vm/user/replay/autosave/match-006.replay"
+    assert (
+        _load_json(writer.result_path)["replay_path"]
+        == "/vm/user/replay/autosave/match-006.replay"
+    )
+    assert _load_json(writer.replay_index_path)["replay_path"] == (
+        "/vm/user/replay/autosave/match-006.replay"
+    )
