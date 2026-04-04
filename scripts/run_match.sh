@@ -59,6 +59,8 @@ while [[ $# -gt 0 ]]; do
         --no-replay)       RECORD_REPLAY=false; shift ;;
         --skip-mod-push)   SKIP_MOD_PUSH=true; shift ;;
         --dry-run)         DRY_RUN=true; shift ;;
+        --match-history)   EXTRA_DAEMON_ARGS+=("--match-history" "$2"); shift 2 ;;
+        --match-history=*) EXTRA_DAEMON_ARGS+=("--match-history" "${1#*=}"); shift ;;
         -h|--help)         head -25 "$0" | tail -23; exit 0 ;;
         -*)                EXTRA_DAEMON_ARGS+=("$1"); shift ;;
         *)
@@ -364,7 +366,7 @@ while true; do
         fi
     done
     if [ -n "$LATEST_RUN" ] && [ -f "${LATEST_RUN}result.json" ] && \
-       python3 -c "import json,sys; r=json.load(open(sys.argv[1])); sys.exit(0 if r.get('status')=='completed' else 1)" "${LATEST_RUN}result.json" 2>/dev/null; then
+       python3 -c "import json,sys; r=json.load(open(sys.argv[1])); sys.exit(0 if r.get('status') in ('completed','failed') else 1)" "${LATEST_RUN}result.json" 2>/dev/null; then
         RESULT_FILE="${LATEST_RUN}result.json"
         # Result found — wait for replay video (up to 3 min for recording + pull)
         log "Match result found, waiting for replay recording..."
@@ -397,7 +399,12 @@ DAEMON_PID=""
 
 # Report results
 if [ -n "$RESULT_FILE" ]; then
-    log "Match completed successfully!"
+    MATCH_STATUS=$(python3 -c "import json; print(json.load(open('$RESULT_FILE')).get('status','?'))" 2>/dev/null || echo "?")
+    if [ "$MATCH_STATUS" = "failed" ]; then
+        log "Match failed (game disconnected or crashed)"
+    else
+        log "Match completed successfully!"
+    fi
     log "Artifacts: $LATEST_RUN"
     printf '\n'
     printf '╔══════════════════════════════════╗\n'

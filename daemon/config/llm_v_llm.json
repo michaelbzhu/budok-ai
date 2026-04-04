@@ -4,7 +4,7 @@
     "host": "0.0.0.0",
     "port": 8765
   },
-  "decision_timeout_ms": 30000,
+  "decision_timeout_ms": 120000,
   "fallback_mode": "safe_continue",
   "logging": {
     "events": true,
@@ -22,7 +22,7 @@
       "prompt_version": "strategic_v1",
       "credential_env_var": "ANTHROPIC_API_KEY",
       "temperature": 0.7,
-      "max_tokens": 512,
+      "max_tokens": 4096,
       "options": {
         "response_parser": {
           "enable_correction_retry": true,
@@ -36,7 +36,7 @@
       "prompt_version": "strategic_v1",
       "credential_env_var": "ANTHROPIC_API_KEY",
       "temperature": 0.7,
-      "max_tokens": 512,
+      "max_tokens": 4096,
       "options": {
         "response_parser": {
           "enable_correction_retry": true,

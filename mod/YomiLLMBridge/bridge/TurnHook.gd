@@ -667,15 +667,21 @@ func _save_replay() -> void:
 
 	var timestamp = OS.get_unix_time()
 	var file_name = "llm_%s_%d" % [_match_id.substr(0, 8), timestamp]
-	ReplayManager.save_replay(match_data, file_name, true)
+	var saved_file_name = ReplayManager.save_replay(match_data, file_name, true)
 	_replay_saved = true
 
-	var replay_path = _find_replay_path()
+	var replay_path = _resolve_saved_replay_path(saved_file_name)
+	if replay_path == null:
+		replay_path = _find_replay_path()
 	if replay_path != null:
 		print("YomiLLMBridge replay saved: %s" % replay_path)
 		_telemetry.emit_replay_saved(replay_path)
 	else:
-		print("YomiLLMBridge replay save called but file not found")
+		var autosave_dir = ProjectSettings.globalize_path("user://replay/autosave")
+		print(
+			"YomiLLMBridge replay save called but file not found (saved_file_name=%s, autosave_dir=%s)"
+			% [str(saved_file_name), autosave_dir]
+		)
 
 
 func _begin_replay_monitoring() -> void:
@@ -768,6 +774,22 @@ func _prevent_replay_loop() -> void:
 	# Also try to stop the replay game from triggering another cycle
 	if _replay_game != null and is_instance_valid(_replay_game):
 		_replay_game.game_started = false
+
+
+func _resolve_saved_replay_path(saved_file_name):
+	if typeof(saved_file_name) != TYPE_STRING:
+		return null
+	var replay_file_name = str(saved_file_name)
+	if replay_file_name == "":
+		return null
+	var replay_user_path = "user://replay/autosave/" + replay_file_name
+	var replay_global_path = ProjectSettings.globalize_path(replay_user_path)
+	var file = File.new()
+	if file.file_exists(replay_user_path):
+		return replay_global_path
+	if file.file_exists(replay_global_path):
+		return replay_global_path
+	return null
 
 
 func _find_replay_path():

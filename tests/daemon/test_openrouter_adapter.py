@@ -5,6 +5,7 @@ from collections.abc import Sequence
 from typing import cast
 
 from tests.daemon._decision_fixtures import build_action, build_request
+from yomi_daemon.adapters.base import PromptTrace
 from yomi_daemon.adapters.openrouter import (
     OpenRouterTransport,
     build_openrouter_adapter,
@@ -32,6 +33,7 @@ class StubOpenRouterTransport(OpenRouterTransport):
         timeout_ms: int,
         http_referer: str | None,
         title: str | None,
+        categories: str | None = None,
     ) -> JsonObject:
         self.calls.append(
             {
@@ -40,6 +42,7 @@ class StubOpenRouterTransport(OpenRouterTransport):
                 "timeout_ms": timeout_ms,
                 "http_referer": http_referer,
                 "title": title,
+                "categories": categories,
             }
         )
         if self._delay_seconds > 0:
@@ -111,6 +114,35 @@ def test_openrouter_adapter_returns_schema_valid_decision_on_success() -> None:
     assert first_call["title"] == "budok-ai"
 
 
+def test_openrouter_adapter_extracts_json_from_reasoning_when_content_is_missing() -> (
+    None
+):
+    request = build_request((build_action("guard"),))
+    transport = StubOpenRouterTransport(
+        responses=[
+            _completion_response(
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "reasoning": '{"action":"guard","notes":"Recovered from reasoning."}',
+                }
+            )
+        ],
+    )
+    adapter = build_openrouter_adapter(
+        "provider/openrouter-main",
+        _policy_config(),
+        decision_timeout_ms=2500,
+        fallback_mode=FallbackMode.HEURISTIC_GUARD,
+        transport=transport,
+    )
+
+    result = asyncio.run(adapter.decide_with_trace(request))
+
+    assert result.decision.action == "guard"
+    assert result.decision.fallback_reason is None
+
+
 def test_openrouter_adapter_falls_back_on_illegal_structured_output() -> None:
     request = build_request((build_action("guard"),))
     transport = StubOpenRouterTransport(
@@ -132,6 +164,38 @@ def test_openrouter_adapter_falls_back_on_illegal_structured_output() -> None:
 
     assert result.decision.fallback_reason is FallbackReason.ILLEGAL_OUTPUT
     assert result.decision.action == "guard"
+
+
+def test_openrouter_adapter_preserves_trace_when_extraction_fails() -> None:
+    request = build_request((build_action("guard"),))
+    transport = StubOpenRouterTransport(
+        responses=[
+            _completion_response(
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "reasoning": "not json at all",
+                }
+            )
+        ],
+    )
+    adapter = build_openrouter_adapter(
+        "provider/openrouter-main",
+        _policy_config(),
+        decision_timeout_ms=2500,
+        fallback_mode=FallbackMode.SAFE_CONTINUE,
+        transport=transport,
+    )
+
+    result = asyncio.run(adapter.decide_with_trace(request))
+
+    assert result.decision.fallback_reason is FallbackReason.MALFORMED_OUTPUT
+    assert result.decision.action == "guard"
+    trace = cast(PromptTrace, result.prompt_trace)
+    provider_request = cast(dict[str, object], trace.provider_request)
+    provider_response = cast(dict[str, object], trace.provider_response)
+    assert len(cast(list[object], provider_request["attempts"])) == 1
+    assert len(cast(list[object], provider_response["attempts"])) == 1
 
 
 def test_openrouter_adapter_falls_back_on_timeout() -> None:

@@ -75,6 +75,7 @@ class DaemonServer:
         runtime_config: "DaemonRuntimeConfig | None" = None,
         auth_secret: str | None = None,
         replay_capture_config: ReplayCaptureConfig | None = None,
+        match_history: dict[str, Any] | None = None,
         logger: logging.Logger | None = None,
     ) -> None:
         self.host = host
@@ -82,6 +83,7 @@ class DaemonServer:
         self._runtime_config = runtime_config
         self._auth_secret = auth_secret
         self._replay_capture_config = replay_capture_config or ReplayCaptureConfig()
+        self._match_history = match_history
         self.runtime_config = ServerRuntimeConfig(
             policy_mapping=policy_mapping
             if policy_mapping is not None
@@ -290,6 +292,16 @@ class DaemonServer:
                             ).to_dict()
                         )
 
+                        # Persist character selection traces
+                        if session.character_selection_traces:
+                            traces_path = writer.run_dir / "character_selection.json"
+                            import json as _json
+
+                            traces_data = [t.to_dict() for t in session.character_selection_traces]
+                            traces_path.write_text(
+                                _json.dumps(traces_data, indent=2) + "\n", encoding="utf-8"
+                            )
+
                     # Dedup: skip if we've already dispatched for this
                     # (player_id, state_hash).  The mod may fire the same
                     # request twice when the game emits player_actionable
@@ -464,6 +476,13 @@ class DaemonServer:
 
         # Emit telemetry event
         if used_fallback:
+            self.logger.warning(
+                "FALLBACK turn %d: %s (%s) -> %s",
+                request.turn_id,
+                adapter.id,
+                player_id,
+                decision.fallback_reason,
+            )
             writer.append_event(
                 Event(
                     match_id=request.match_id,
@@ -511,13 +530,31 @@ class DaemonServer:
             return
 
         self.logger.debug(
-            "Session %s: turn %d player %s -> action=%s fallback=%s",
+            "Session %s: turn %d %s (%s) -> action=%s fallback=%s",
             session.session_id,
             request.turn_id,
+            adapter.id,
             player_id,
             decision.action,
             used_fallback,
         )
+
+        # Periodic HP status (every 10 turns, on either player's turn)
+        if request.turn_id % 10 == 0:
+            try:
+                fighters = request.observation.fighters
+                if len(fighters) >= 2:
+                    f1, f2 = fighters[0], fighters[1]
+                    self.logger.info(
+                        "HP_STATUS turn %d: %s %s HP vs %s %s HP",
+                        request.turn_id,
+                        f1.character,
+                        f1.hp,
+                        f2.character,
+                        f2.hp,
+                    )
+            except Exception:
+                pass
 
     async def _handle_replay_capture(
         self,
@@ -537,9 +574,14 @@ class DaemonServer:
             logger=self.logger,
         )
 
+        effective_replay_path = replay_path
+        pulled_replay_path: str | None = None
+
         # Pull the .replay file if available
         if replay_path:
+            writer.update_replay_path(replay_path)
             await capture.pull_replay_file(replay_path)
+            pulled_replay_path = replay_path
 
         self.logger.info(
             "Session %s: waiting for replay events (timeout 120s)...",
@@ -566,8 +608,23 @@ class DaemonServer:
                         continue
 
                     event = cast(Event, envelope.payload)
+                    writer.append_event(event.to_dict())
 
-                    if event.event is EventName.REPLAY_STARTED:
+                    if event.event is EventName.REPLAY_SAVED:
+                        replay_path_raw = event.details.get("replay_path")
+                        if isinstance(replay_path_raw, str) and replay_path_raw:
+                            effective_replay_path = replay_path_raw
+                            writer.update_replay_path(replay_path_raw)
+                            if pulled_replay_path != replay_path_raw:
+                                await capture.pull_replay_file(replay_path_raw)
+                                pulled_replay_path = replay_path_raw
+                        else:
+                            self.logger.warning(
+                                "Session %s: ReplaySaved missing replay_path",
+                                session.session_id,
+                            )
+
+                    elif event.event is EventName.REPLAY_STARTED:
                         display = str(
                             event.details.get("display", self._replay_capture_config.display)
                         )
@@ -604,6 +661,10 @@ class DaemonServer:
                         video_path = await capture.stop_recording()
                         if video_path:
                             self.logger.info("Replay video saved to %s", video_path)
+                        if effective_replay_path and pulled_replay_path != effective_replay_path:
+                            writer.update_replay_path(effective_replay_path)
+                            await capture.pull_replay_file(effective_replay_path)
+                            pulled_replay_path = effective_replay_path
                         await capture.cleanup()
                         break
 
@@ -618,6 +679,9 @@ class DaemonServer:
                 video_path = await capture.stop_recording()
                 if video_path:
                     self.logger.info("Replay video saved to %s (after timeout)", video_path)
+            if effective_replay_path and pulled_replay_path != effective_replay_path:
+                writer.update_replay_path(effective_replay_path)
+                await capture.pull_replay_file(effective_replay_path)
             await capture.cleanup()
 
     async def _perform_handshake(
@@ -694,12 +758,17 @@ class DaemonServer:
 
         # Resolve LLM character selection before building session
         config_snapshot = self.runtime_config.config_snapshot
+        char_select_traces: list[Any] = []
         if (
             self._runtime_config is not None
             and self._runtime_config.character_selection.mode is CharacterSelectionMode.LLM_CHOICE
         ):
             self.logger.info("Resolving LLM character choices for session %s...", session_id)
-            assignments = await resolve_character_assignments(self._runtime_config)
+            char_result = await resolve_character_assignments(
+                self._runtime_config, match_history=self._match_history
+            )
+            assignments = char_result.assignments
+            char_select_traces = char_result.traces
             # Replace character_selection in config snapshot with concrete assignments
             if config_snapshot is not None:
                 config_snapshot = ConfigPayload(
@@ -729,6 +798,8 @@ class DaemonServer:
             policy_mapping=self.runtime_config.policy_mapping,
             config_snapshot=config_snapshot,
         )
+        if char_select_traces:
+            session.character_selection_traces = char_select_traces
         await connection.send(json.dumps(self._build_hello_ack_envelope(session).to_dict()))
         return session
 

@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from yomi_daemon.protocol import ConfigPayload, Hello, PlayerPolicyMapping, ProtocolVersion
+
+if TYPE_CHECKING:
+    from yomi_daemon.character_selection import CharacterSelectionTrace
 
 
 @dataclass(slots=True)
@@ -24,6 +28,7 @@ class MatchSession:
     policy_mapping: PlayerPolicyMapping
     config_snapshot: ConfigPayload | None
     metadata: MatchMetadata
+    character_selection_traces: list[CharacterSelectionTrace] = field(default_factory=list)
 
     @classmethod
     def from_hello(

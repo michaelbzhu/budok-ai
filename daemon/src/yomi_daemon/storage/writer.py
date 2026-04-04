@@ -538,6 +538,42 @@ class MatchArtifactWriter:
 
         return self._result
 
+    def update_replay_path(
+        self,
+        replay_path: str,
+        *,
+        updated_at: datetime | None = None,
+    ) -> ResultSummary:
+        normalized_replay_path = _require_string(replay_path, context="replay_path")
+        updated_at_text = utc_timestamp(updated_at)
+
+        with self._lock:
+            self._replay_index.finalize(
+                updated_at=updated_at_text,
+                replay_path=normalized_replay_path,
+            )
+            self._result = ResultSummary(
+                match_id=self._result.match_id,
+                status=self._result.status,
+                started_at=self._result.started_at,
+                completed_at=self._result.completed_at,
+                winner=self._result.winner,
+                end_reason=self._result.end_reason,
+                total_turns=self._result.total_turns,
+                end_tick=self._result.end_tick,
+                end_frame=self._result.end_frame,
+                replay_path=normalized_replay_path,
+                errors=self._result.errors,
+                metrics=self._result.metrics,
+                artifacts=self._result.artifacts,
+                match_ended_payload=self._result.match_ended_payload,
+                details=self._result.details,
+            )
+            self._persist_replay_index()
+            self._persist_result()
+
+        return self._result
+
     def _persist_metrics(self) -> None:
         _write_json_atomic(self.metrics_path, self._metrics.to_dict())
 

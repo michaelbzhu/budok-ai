@@ -40,11 +40,22 @@ func apply_decision(decision_payload: Dictionary, fighter) -> Dictionary:
 
 
 func _resolve_queued_data(data):
-	# Pass through dict or null; the engine accepts both
+	# Pass through dict or null; the engine accepts both.
+	# Single-child ActionUIData nodes return flat data (e.g. {"x": 70, "y": -70})
+	# from get_data(), but the daemon wraps them in the child name
+	# (e.g. {"Aim": {"x": 70, "y": -70}}).  The game's state code accesses
+	# data.x / data.y directly, so we must unwrap single-key dicts where the
+	# value is itself a dict (or the FixedMath library panics on null access).
 	if data == null:
 		return null
 	if data is Dictionary:
-		return data.duplicate(true)
+		var result = data.duplicate(true)
+		if result.size() == 1:
+			var only_key = result.keys()[0]
+			var only_value = result[only_key]
+			if only_value is Dictionary:
+				return only_value
+		return result
 	return null
 
 

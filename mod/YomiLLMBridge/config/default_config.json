@@ -11,7 +11,7 @@
     ]
   },
   "game_version": "supported-build-16151810",
-  "decision_timeout_ms": 15000,
+  "decision_timeout_ms": 120000,
   "fallback_mode": "safe_continue",
   "logging": {
     "events": true,

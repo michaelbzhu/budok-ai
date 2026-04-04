@@ -6,6 +6,7 @@ import json
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import dataclass
+from json import JSONDecodeError
 from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from openai import APIConnectionError, APIStatusError, AsyncOpenAI
@@ -43,11 +44,27 @@ class OpenRouterTransport(Protocol):
         timeout_ms: int,
         http_referer: str | None,
         title: str | None,
+        categories: str | None = None,
     ) -> JsonObject: ...
 
 
 class OpenRouterProviderError(RuntimeError):
     """Raised when the upstream OpenRouter request fails before parsing."""
+
+
+class OpenRouterProviderTraceError(OpenRouterProviderError):
+    """Provider error that preserves request/response payloads for prompt traces."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        request_payload: JsonObject,
+        response_payload: JsonObject | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.request_payload = request_payload
+        self.response_payload = response_payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,12 +86,14 @@ class DefaultOpenRouterTransport:
         timeout_ms: int,
         http_referer: str | None,
         title: str | None,
+        categories: str | None = None,
     ) -> JsonObject:
         try:
             response = await self._client_for_config(
                 api_key=api_key,
                 http_referer=http_referer,
                 title=title,
+                categories=categories,
             ).chat.completions.create(
                 **cast(Any, payload),
                 timeout=timeout_ms / 1000,
@@ -84,6 +103,11 @@ class DefaultOpenRouterTransport:
         except APIStatusError as exc:
             from yomi_daemon.redact import sanitize_provider_error
 
+            import logging
+
+            logging.getLogger("yomi_daemon.adapters.openrouter").warning(
+                "OpenRouter API error %d: %s", exc.status_code, sanitize_provider_error(exc)
+            )
             raise OpenRouterProviderError(sanitize_provider_error(exc)) from exc
 
         dumped = response.model_dump(mode="json")
@@ -97,8 +121,9 @@ class DefaultOpenRouterTransport:
         api_key: str,
         http_referer: str | None,
         title: str | None,
+        categories: str | None = None,
     ) -> AsyncOpenAI:
-        cache_key = (api_key, http_referer, title)
+        cache_key = (api_key, http_referer, title, categories)
         client = self._client_by_key_and_headers.get(cache_key)
         if client is None:
             default_headers: dict[str, str] = {}
@@ -106,6 +131,8 @@ class DefaultOpenRouterTransport:
                 default_headers["HTTP-Referer"] = http_referer
             if title is not None:
                 default_headers["X-Title"] = title
+            if categories is not None:
+                default_headers["X-OpenRouter-Categories"] = categories
             client = AsyncOpenAI(
                 api_key=api_key,
                 base_url=_OPENROUTER_BASE_URL,
@@ -129,6 +156,8 @@ class OpenRouterAdapter(BasePolicyAdapter):
         max_tokens: int | None,
         http_referer: str | None,
         title: str | None,
+        categories: str | None = None,
+        reasoning_effort: str | None = None,
         transport: OpenRouterTransport | None = None,
         default_trace_seed: int = 0,
     ) -> None:
@@ -141,6 +170,8 @@ class OpenRouterAdapter(BasePolicyAdapter):
         self._max_tokens = max_tokens
         self._http_referer = http_referer
         self._title = title
+        self._categories = categories
+        self._reasoning_effort = reasoning_effort
         self._transport = transport or DefaultOpenRouterTransport()
 
     async def decide(self, request: DecisionRequest) -> ActionDecision:
@@ -156,21 +187,35 @@ class OpenRouterAdapter(BasePolicyAdapter):
         response_attempts: list[JsonObject] = []
 
         async def decision_provider(_: DecisionRequest) -> object:
-            call = await self._call_provider(
-                prompt_text=rendered_prompt.prompt_text,
-                request=request,
-                attempt_kind="initial",
-            )
+            try:
+                call = await self._call_provider(
+                    prompt_text=rendered_prompt.prompt_text,
+                    request=request,
+                    attempt_kind="initial",
+                )
+            except OpenRouterProviderTraceError as exc:
+                request_attempts.append(deepcopy(exc.request_payload))
+                if exc.response_payload is not None:
+                    response_attempts.append(deepcopy(exc.response_payload))
+                raise
+
             request_attempts.append(call.request_payload)
             response_attempts.append(call.response_payload)
             return call.output
 
         async def correction_callback(correction_prompt: str) -> object:
-            call = await self._call_provider(
-                prompt_text=correction_prompt,
-                request=request,
-                attempt_kind="correction",
-            )
+            try:
+                call = await self._call_provider(
+                    prompt_text=correction_prompt,
+                    request=request,
+                    attempt_kind="correction",
+                )
+            except OpenRouterProviderTraceError as exc:
+                request_attempts.append(deepcopy(exc.request_payload))
+                if exc.response_payload is not None:
+                    response_attempts.append(deepcopy(exc.response_payload))
+                raise
+
             request_attempts.append(call.request_payload)
             response_attempts.append(call.response_payload)
             return call.output
@@ -222,8 +267,16 @@ class OpenRouterAdapter(BasePolicyAdapter):
             timeout_ms=self._decision_timeout_ms,
             http_referer=self._http_referer,
             title=self._title,
+            categories=self._categories,
         )
-        output = _extract_response_output(provider_response)
+        try:
+            output = _extract_response_output(provider_response)
+        except OpenRouterProviderError as exc:
+            raise OpenRouterProviderTraceError(
+                str(exc),
+                request_payload=provider_request,
+                response_payload=provider_response,
+            ) from exc
         return _ProviderCallResult(
             output=output,
             request_payload=provider_request,
@@ -247,7 +300,7 @@ class OpenRouterAdapter(BasePolicyAdapter):
                 "type": "json_schema",
                 "json_schema": {
                     "name": "yomi_action_decision",
-                    "strict": True,
+                    "strict": False,
                     "schema": decision_output_json_schema(),
                 },
             },
@@ -257,6 +310,8 @@ class OpenRouterAdapter(BasePolicyAdapter):
             payload["temperature"] = self._temperature
         if self._max_tokens is not None:
             payload["max_tokens"] = self._max_tokens
+        if self._reasoning_effort is not None:
+            payload["extra_body"] = {"reasoning": {"effort": self._reasoning_effort}}
         if request.trace_seed is not None:
             payload["seed"] = request.trace_seed
         payload["metadata"] = {"prompt_version": prompt_version, "policy_id": self.id}
@@ -287,6 +342,8 @@ def build_openrouter_adapter(
         max_tokens=policy.max_tokens,
         http_referer=_optional_string_option(options, "http_referer"),
         title=_optional_string_option(options, "title"),
+        categories=_optional_string_option(options, "categories"),
+        reasoning_effort=_optional_string_option(options, "reasoning_effort"),
         transport=transport,
         default_trace_seed=default_trace_seed,
     )
@@ -391,4 +448,24 @@ def _extract_response_output(response_payload: JsonObject) -> object:
         if text_fragments:
             return "".join(text_fragments)
 
+    reasoning = message_raw.get("reasoning")
+    if isinstance(reasoning, str) and reasoning.strip():
+        json_candidate = _extract_json_object(reasoning)
+        if json_candidate is not None:
+            return cast(JsonObject, json_candidate)
+
     raise OpenRouterProviderError("OpenRouter response did not include structured content")
+
+
+def _extract_json_object(text: str) -> Mapping[str, object] | None:
+    decoder = json.JSONDecoder()
+    for index, character in enumerate(text):
+        if character != "{":
+            continue
+        try:
+            parsed, _end = decoder.raw_decode(text[index:])
+        except JSONDecodeError:
+            continue
+        if isinstance(parsed, Mapping):
+            return cast(Mapping[str, object], parsed)
+    return None

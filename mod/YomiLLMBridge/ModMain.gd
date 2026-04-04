@@ -11,6 +11,7 @@ const DEFAULT_GAME_VERSION := "supported-build-16151810"
 var bridge_client: Node = null
 var turn_hook: Node = null
 var auto_match_starter = null
+var auto_replay_recorder: Node = null
 var options_ui: Control = null
 var bridge_config = {}
 var mod_metadata = {}
@@ -25,6 +26,13 @@ func _ready() -> void:
 	mod_metadata = _load_json_document(_metadata_path())
 	bridge_config = _normalize_config(_load_json_document(_config_path()))
 	print("YomiLLMBridge config loaded, host=%s" % bridge_config.get("transport", {}).get("host", "?"))
+
+	var autostart_replay_path = str(OS.get_environment("YOMI_AUTOSTART_REPLAY_PATH"))
+	if autostart_replay_path != "":
+		_replay_debug_log("YomiLLMBridge replay automation enabled for %s" % autostart_replay_path)
+		print("YomiLLMBridge replay automation enabled for %s" % autostart_replay_path)
+		_auto_start_replay(autostart_replay_path)
+		return
 
 	bridge_client = _instantiate_script(_script_base_dir() + "/bridge/BridgeClient.gd")
 	if bridge_client == null:
@@ -147,6 +155,26 @@ func _deferred_auto_start(hello_ack: Dictionary) -> void:
 	if auto_match_starter == null:
 		return
 	auto_match_starter.start_match(hello_ack)
+
+
+func _auto_start_replay(replay_path: String) -> void:
+	if auto_replay_recorder != null:
+		return
+	_replay_debug_log("YomiLLMBridge creating AutoReplayRecorder")
+	var script = load(_script_base_dir() + "/bridge/AutoReplayRecorder.gd")
+	if script == null:
+		_replay_debug_log("YomiLLMBridge failed to load AutoReplayRecorder.gd")
+		printerr("YomiLLMBridge failed to load AutoReplayRecorder.gd")
+		return
+	auto_replay_recorder = script.new()
+	_replay_debug_log("YomiLLMBridge AutoReplayRecorder instantiated")
+	add_child(auto_replay_recorder)
+	auto_replay_recorder.configure(
+		replay_path,
+		_parse_env_float("YOMI_AUTOSTART_REPLAY_GRACE_SECONDS", 5.0),
+		_parse_env_int("YOMI_AUTOSTART_REPLAY_SPEED_MOD", 2)
+	)
+	_replay_debug_log("YomiLLMBridge AutoReplayRecorder configured")
 
 
 func _build_handshake_context() -> Dictionary:
@@ -272,6 +300,20 @@ func _duplicate_string_array(raw_value) -> Array:
 	return result
 
 
+func _parse_env_int(name: String, fallback: int) -> int:
+	var raw_value = str(OS.get_environment(name))
+	if raw_value == "":
+		return fallback
+	return int(raw_value)
+
+
+func _parse_env_float(name: String, fallback: float) -> float:
+	var raw_value = str(OS.get_environment(name))
+	if raw_value == "":
+		return fallback
+	return float(raw_value)
+
+
 func _script_base_dir() -> String:
 	return get_script().resource_path.get_base_dir()
 
@@ -282,3 +324,15 @@ func _config_path() -> String:
 
 func _metadata_path() -> String:
 	return _script_base_dir() + "/_metadata"
+
+
+func _replay_debug_log(message: String) -> void:
+	var file = File.new()
+	var path = "/tmp/yomi_autoreplay_debug.log"
+	var mode = File.READ_WRITE if file.file_exists(path) else File.WRITE
+	var open_error = file.open(path, mode)
+	if open_error != OK:
+		return
+	file.seek_end()
+	file.store_line(message)
+	file.close()

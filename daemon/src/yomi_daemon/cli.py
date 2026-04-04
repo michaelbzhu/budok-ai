@@ -67,6 +67,12 @@ def build_argument_parser() -> argparse.ArgumentParser:
         default=None,
         help="X display for replay recording (default: from config, or :99).",
     )
+    parser.add_argument(
+        "--match-history",
+        type=Path,
+        default=None,
+        help="JSON file with per-player match history for character selection context.",
+    )
     return parser
 
 
@@ -93,6 +99,27 @@ async def _run_async(args: argparse.Namespace) -> int:
         video_codec=runtime_config.replay_capture.video_codec,
         preset=runtime_config.replay_capture.preset,
     )
+    # Load match history for character selection context (tournament series)
+    match_history = None
+    if args.match_history and args.match_history.is_file():
+        import json
+
+        from yomi_daemon.prompt import MatchHistoryEntry
+
+        raw = json.loads(args.match_history.read_text(encoding="utf-8"))
+        match_history = {}
+        for player_slot, entries in raw.items():
+            match_history[player_slot] = [
+                MatchHistoryEntry(
+                    your_character=e["your_character"],
+                    opponent_character=e["opponent_character"],
+                    result=e["result"],
+                    your_final_hp=e["your_final_hp"],
+                    opponent_final_hp=e["opponent_final_hp"],
+                )
+                for e in entries
+            ]
+
     server = DaemonServer(
         host=runtime_config.transport.host,
         port=runtime_config.transport.port,
@@ -101,6 +128,7 @@ async def _run_async(args: argparse.Namespace) -> int:
         runtime_config=runtime_config,
         auth_secret=runtime_config.transport.auth_secret,
         replay_capture_config=replay_capture_config,
+        match_history=match_history,
     )
     await server.start()
     try:
@@ -117,6 +145,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         level=getattr(logging, args.log_level),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    # Suppress noisy websockets handshake errors from port-check probes
+    logging.getLogger("websockets.server").setLevel(logging.CRITICAL)
 
     try:
         return asyncio.run(_run_async(args))
