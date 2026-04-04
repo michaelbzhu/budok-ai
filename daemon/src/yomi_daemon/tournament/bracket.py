@@ -219,15 +219,26 @@ def build_bracket(
     sorted_seeds = sorted(seeds, key=lambda s: s.seed)
     round_names = _ROUND_NAMES[n]
 
-    # Build first round pairings: 1v8, 2v7, 3v6, 4v5
-    first_round: list[SeriesMatchup] = []
+    # Build first round pairings in bracket order so that the highest
+    # seeds stay on opposite sides.  For 8 entrants the position order
+    # is 1v8, 4v5, 3v6, 2v7 — this guarantees seed 1 and seed 2 can
+    # only meet in the final (standard tournament seeding).
     half = n // 2
-    for i in range(half):
-        high = sorted_seeds[i]
-        low = sorted_seeds[n - 1 - i]
+    # Generate pairs by seed index: (0,n-1), (1,n-2), …
+    pairs = [(sorted_seeds[i], sorted_seeds[n - 1 - i]) for i in range(half)]
+    # Bracket-order: reorder pairs so adjacent pairs feed the same semi
+    _BRACKET_ORDER: dict[int, list[int]] = {
+        1: [0],
+        2: [0, 1],
+        4: [0, 3, 2, 1],
+    }
+    order = _BRACKET_ORDER[half]
+    first_round: list[SeriesMatchup] = []
+    for pos, pair_idx in enumerate(order):
+        high, low = pairs[pair_idx]
         first_round.append(
             SeriesMatchup(
-                series_id=f"R0-S{i}",
+                series_id=f"R0-S{pos}",
                 round_name=round_names[0],
                 round_index=0,
                 high_seed=high,

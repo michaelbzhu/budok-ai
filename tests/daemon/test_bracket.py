@@ -14,12 +14,16 @@ def _seeds(n: int) -> list[BracketSeed]:
 
 
 def test_bracket_8_first_round_pairings():
-    """8-entrant bracket should pair 1v8, 2v7, 3v6, 4v5."""
+    """8-entrant bracket should pair in bracket order: 1v8, 4v5, 3v6, 2v7.
+
+    This ensures the top two seeds are on opposite sides and can only
+    meet in the final (standard tournament seeding).
+    """
     bracket = build_bracket(_seeds(8))
     first_round = bracket.rounds[0]
     assert len(first_round) == 4
     pairs = [(m.high_seed.seed, m.low_seed.seed) for m in first_round]
-    assert pairs == [(1, 8), (2, 7), (3, 6), (4, 5)]
+    assert pairs == [(1, 8), (4, 5), (3, 6), (2, 7)]
 
 
 def test_bracket_8_has_three_rounds():
