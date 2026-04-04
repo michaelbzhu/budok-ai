@@ -33,6 +33,7 @@ HEIGHT = 36
 FRAME_SIZE = WIDTH * HEIGHT
 ROLLING_WINDOW_FRAMES = 30
 ROLLING_AVG_THRESHOLD = 0.06
+SIGNIFICANT_MOTION_THRESHOLD = 0.08
 TAIL_MIN_SECONDS = 2.0
 OVERLAY_SEARCH_BACK_SECONDS = 3.0
 OVERLAY_PIXEL_THRESHOLD = 180
@@ -211,6 +212,22 @@ def detect_motion_end_seconds(diffs: list[float], start_trim_seconds: float) -> 
     return max((active[-1] + ROLLING_WINDOW_FRAMES) / FPS, start_trim_seconds + 0.1)
 
 
+def detect_significant_motion_end_seconds(
+    diffs: list[float], start_trim_seconds: float
+) -> float:
+    if len(diffs) < ROLLING_WINDOW_FRAMES:
+        return max((len(diffs) + 1) / FPS, start_trim_seconds + 0.1)
+
+    rolling = [
+        sum(diffs[i : i + ROLLING_WINDOW_FRAMES]) / ROLLING_WINDOW_FRAMES
+        for i in range(len(diffs) - ROLLING_WINDOW_FRAMES + 1)
+    ]
+    active = [i for i, value in enumerate(rolling) if value > SIGNIFICANT_MOTION_THRESHOLD]
+    if not active:
+        return max(ROLLING_WINDOW_FRAMES / FPS, start_trim_seconds + 0.1)
+    return max((active[-1] + ROLLING_WINDOW_FRAMES) / FPS, start_trim_seconds + 0.1)
+
+
 def detect_overlay_start_seconds(
     bright_counts: list[int],
     motion_end_seconds: float,
@@ -227,6 +244,22 @@ def detect_overlay_start_seconds(
         int(motion_end_seconds * FPS),
         len(bright_counts) - OVERLAY_BRIGHT_RUN,
     )
+    for frame_idx in range(start_frame, max(start_frame, end_frame)):
+        if all(
+            bright_counts[j] >= OVERLAY_BRIGHT_COUNT_THRESHOLD
+            for j in range(frame_idx, frame_idx + OVERLAY_BRIGHT_RUN)
+        ):
+            return frame_idx / FPS
+    return None
+
+
+def detect_overlay_after_seconds(
+    bright_counts: list[int],
+    start_seconds: float,
+    end_seconds: float,
+) -> float | None:
+    start_frame = max(int(start_seconds * FPS), 0)
+    end_frame = min(int(end_seconds * FPS), len(bright_counts) - OVERLAY_BRIGHT_RUN)
     for frame_idx in range(start_frame, max(start_frame, end_frame)):
         if all(
             bright_counts[j] >= OVERLAY_BRIGHT_COUNT_THRESHOLD
@@ -298,6 +331,10 @@ def build_trim_result(
     motion_end_seconds = min(
         detect_motion_end_seconds(diffs, start_trim_seconds), duration_seconds
     )
+    significant_motion_end_seconds = min(
+        detect_significant_motion_end_seconds(diffs, start_trim_seconds),
+        duration_seconds,
+    )
     end_trim_seconds = motion_end_seconds
     overlay_start_seconds: float | None = None
     tail_removed_seconds = duration_seconds - motion_end_seconds
@@ -308,6 +345,21 @@ def build_trim_result(
             start_trim_seconds,
         )
         if overlay_start_seconds is not None:
+            end_trim_seconds = min(
+                max(
+                    overlay_start_seconds + end_overlay_keep_seconds,
+                    start_trim_seconds + 0.1,
+                ),
+                duration_seconds,
+            )
+    elif motion_end_seconds - significant_motion_end_seconds >= TAIL_MIN_SECONDS:
+        fallback_overlay_start_seconds = detect_overlay_after_seconds(
+            bright_counts,
+            significant_motion_end_seconds,
+            motion_end_seconds,
+        )
+        if fallback_overlay_start_seconds is not None:
+            overlay_start_seconds = fallback_overlay_start_seconds
             end_trim_seconds = min(
                 max(
                     overlay_start_seconds + end_overlay_keep_seconds,
