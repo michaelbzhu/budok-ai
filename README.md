@@ -54,7 +54,7 @@ Only tested on MacOS. The game runs headlessly in a Linux VM via OrbStack.
    orb run -m ubuntu bash -c "\
      sudo apt-get update -qq && \
      sudo apt-get install -y \
-       xvfb libgl1 mesa-utils unzip scrot ffmpeg \
+       xvfb libgl1 mesa-utils unzip scrot x11-utils ffmpeg \
        libx11-6 libxcursor1 libxinerama1 libxrandr2 libxi6 \
        libgles2-mesa libegl1-mesa libgl1-mesa-dri \
        libpulse0 libasound2"

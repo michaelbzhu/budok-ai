@@ -99,6 +99,7 @@ class DaemonServer:
         self._active_sessions: dict[str, MatchSession] = {}
         self._stopped = asyncio.Event()
         self._stopped.set()
+        self._stop_task: asyncio.Task[None] | None = None
 
         # Build policy adapters if runtime config is available
         self._player_adapters: Mapping[PlayerSlot, PolicyAdapter] | None = None
@@ -148,8 +149,16 @@ class DaemonServer:
         self._server.close()
         await self._server.wait_closed()
         self._server = None
+        self._stop_task = None
         self._stopped.set()
         self.logger.info("Daemon server stopped")
+
+    def request_stop(self) -> None:
+        if self._server is None:
+            return
+        if self._stop_task is not None and not self._stop_task.done():
+            return
+        self._stop_task = asyncio.create_task(self.stop())
 
     async def serve_forever(self) -> None:
         if self._server is None:
@@ -198,7 +207,7 @@ class DaemonServer:
         # the mod from reconnecting and auto-starting another match.
         if self._runtime_config is not None:
             self.logger.info("Shutting down after completed match")
-            await self.stop()
+            self.request_stop()
 
     async def _run_match_loop(
         self,
